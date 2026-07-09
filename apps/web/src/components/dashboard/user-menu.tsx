@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -50,17 +51,19 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
         }
       />
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="flex flex-col">
-          <span className="font-medium">{name}</span>
-          <span className="text-xs font-normal text-muted-foreground">{email}</span>
-        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex flex-col">
+            <span className="font-medium">{name}</span>
+            <span className="text-xs font-normal text-muted-foreground">{email}</span>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => router.push("/dashboard/settings/profile")}>
+        <DropdownMenuItem onClick={() => router.push("/dashboard/settings/profile")}>
           <UserIcon className="size-4" />
           Profile
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" disabled={loggingOut} onSelect={handleLogout}>
+        <DropdownMenuItem variant="destructive" disabled={loggingOut} onClick={handleLogout}>
           <LogOut className="size-4" />
           {loggingOut ? "Logging out..." : "Log out"}
         </DropdownMenuItem>
