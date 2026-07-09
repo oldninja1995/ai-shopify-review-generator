@@ -10,3 +10,6 @@ build/
 .DS_Store
 .pnpm-store/
 coverage/
+
+.vercel
+.env*
