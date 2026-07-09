@@ -1,17 +1,26 @@
 import Link from "next/link";
 import { Package, Sparkles, MessageSquareText, UploadCloud } from "lucide-react";
+import { prisma } from "@ai-shopify/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth/session";
 
-const STATS = [
-  { label: "Products synced", value: 0, icon: Package },
-  { label: "Reviews generated", value: 0, icon: Sparkles },
-  { label: "Reviews uploaded", value: 0, icon: MessageSquareText },
-  { label: "Pending uploads", value: 0, icon: UploadCloud },
-];
-
 export default async function DashboardHomePage() {
   const user = await getCurrentUser();
+
+  const store = user
+    ? await prisma.shopifyStore.findFirst({
+        where: { userId: user.id },
+        orderBy: { connectedAt: "desc" },
+      })
+    : null;
+  const productsSynced = store ? await prisma.product.count({ where: { storeId: store.id } }) : 0;
+
+  const STATS = [
+    { label: "Products synced", value: productsSynced, icon: Package },
+    { label: "Reviews generated", value: 0, icon: Sparkles },
+    { label: "Reviews uploaded", value: 0, icon: MessageSquareText },
+    { label: "Pending uploads", value: 0, icon: UploadCloud },
+  ];
 
   return (
     <div className="space-y-6">
@@ -39,7 +48,9 @@ export default async function DashboardHomePage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">1. Connect your Shopify store</CardTitle>
+            <CardTitle className="text-base">
+              1. {store ? `Connected to ${store.shopDomain}` : "Connect your Shopify store"}
+            </CardTitle>
             <CardDescription>
               Import products, images, descriptions, collections, tags, and variants.
             </CardDescription>

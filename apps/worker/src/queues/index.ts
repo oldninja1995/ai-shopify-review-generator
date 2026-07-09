@@ -3,9 +3,9 @@ import { QUEUE_NAMES } from "@ai-shopify/shared";
 import { connection } from "../redis.js";
 
 /**
- * Queue producers only. Each queue gets its consumer (BullMQ `Worker`) wired
+ * Queue producers. Each queue gets its consumer (BullMQ `Worker`) wired
  * up in the phase that implements the corresponding job:
- *   SHOPIFY_SYNC            -> Phase 4 (Shopify integration)
+ *   SHOPIFY_SYNC            -> done (see ./shopify-sync.worker.ts)
  *   PRODUCT_VISION_ANALYSIS -> Phase 7 (Claude Vision analysis)
  *   REVIEW_GENERATION       -> Phase 9 (review generator) / Phase 12 (bulk)
  *   REVIEW_UPLOAD           -> Phase 13 (upload queue)

@@ -17,4 +17,5 @@ export const env = {
   REDIS_URL: requireEnv("REDIS_URL", "redis://localhost:6379"),
   WORKER_PORT: Number(process.env.WORKER_PORT ?? 4000),
   DATABASE_URL: requireEnv("DATABASE_URL"),
+  ENCRYPTION_KEY: requireEnv("ENCRYPTION_KEY"),
 };
