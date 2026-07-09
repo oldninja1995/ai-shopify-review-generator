@@ -19,6 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_callback: "Shopify's response could not be verified. Please try connecting again.",
   state_mismatch: "The connection request expired. Please try connecting again.",
   already_connected: "That store is already connected to a different account.",
+  shopify_not_configured: "Shopify isn't configured on this deployment yet. Add SHOPIFY_API_KEY and SHOPIFY_API_SECRET, then try again.",
 };
 
 export default async function ProductsPage({

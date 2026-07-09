@@ -26,7 +26,17 @@ export async function GET(request: NextRequest) {
 
   const { shop } = parsed.data;
   const state = generateOAuthState();
-  const response = NextResponse.redirect(buildAuthorizeUrl(shop, state));
+
+  let authorizeUrl: string;
+  try {
+    authorizeUrl = buildAuthorizeUrl(shop, state);
+  } catch {
+    const url = new URL("/dashboard/products", request.url);
+    url.searchParams.set("error", "shopify_not_configured");
+    return NextResponse.redirect(url);
+  }
+
+  const response = NextResponse.redirect(authorizeUrl);
 
   const cookieOptions = {
     httpOnly: true,

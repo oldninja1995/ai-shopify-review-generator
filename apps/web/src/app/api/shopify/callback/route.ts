@@ -49,8 +49,15 @@ export async function GET(request: NextRequest) {
     return redirectWithError(request, "already_connected");
   }
 
-  const { accessToken, scope } = await exchangeCodeForToken(shop, code);
-  const accessTokenEncrypted = encryptSecret(accessToken, requireEncryptionKey());
+  let accessToken: string;
+  let scope: string;
+  let accessTokenEncrypted: string;
+  try {
+    ({ accessToken, scope } = await exchangeCodeForToken(shop, code));
+    accessTokenEncrypted = encryptSecret(accessToken, requireEncryptionKey());
+  } catch {
+    return redirectWithError(request, "shopify_not_configured");
+  }
 
   const store = await prisma.shopifyStore.upsert({
     where: { shopDomain: shop },
