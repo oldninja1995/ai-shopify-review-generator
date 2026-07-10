@@ -1,11 +1,54 @@
-import { PlaceholderPage } from "@/components/dashboard/placeholder-page";
+import { redirect } from "next/navigation";
+import { prisma } from "@ai-shopify/db";
+import { getCurrentUser } from "@/lib/auth/session";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { BrandSettingsForm } from "@/components/dashboard/brand-settings-form";
 
-export default function BrandSettingsPage() {
+const EMPTY_VALUES = {
+  brandName: "",
+  brandDescription: "",
+  brandCategory: "",
+  brandPositioning: "",
+  brandPersonality: "",
+  brandVoice: "",
+  targetAudience: "",
+  country: "",
+  language: "",
+};
+
+export default async function BrandSettingsPage() {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login");
+  }
+
+  const store = await prisma.shopifyStore.findFirst({
+    where: { userId: user.id },
+    orderBy: { connectedAt: "desc" },
+  });
+
+  if (!store) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Brand Settings</h1>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">No store connected</CardTitle>
+            <CardDescription>
+              Connect a Shopify store from the Products page before setting up brand details.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  const brandSettings = await prisma.brandSettings.findUnique({ where: { storeId: store.id } });
+
   return (
-    <PlaceholderPage
-      title="Brand Settings"
-      description="Define your brand name, description, category, positioning, personality, voice, target audience, country, and language so Claude understands your brand before generating reviews."
-      phase="Phase 6"
-    />
+    <div className="mx-auto max-w-2xl space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Brand Settings</h1>
+      <BrandSettingsForm initialValues={brandSettings ?? EMPTY_VALUES} />
+    </div>
   );
 }

@@ -165,6 +165,7 @@ model Collection {
   shopifyCollectionId  String
   title                String
   handle               String
+  sortOrder            String?
   createdAt            DateTime @default(now())
 
   products ProductCollection[]
@@ -179,6 +180,7 @@ model ProductCollection {
   product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   collectionId String
   collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  position     Int        @default(0)
 
   @@id([productId, collectionId])
   @@map("product_collections")

@@ -114,10 +114,12 @@ export async function syncShopifyStore(storeId: string): Promise<void> {
         shopifyCollectionId: String(collection.id),
         title: collection.title,
         handle: collection.handle,
+        sortOrder: collection.sort_order,
       },
       update: {
         title: collection.title,
         handle: collection.handle,
+        sortOrder: collection.sort_order,
       },
     });
 
@@ -128,7 +130,7 @@ export async function syncShopifyStore(storeId: string): Promise<void> {
       "products",
     );
 
-    for (const collectionProduct of collectionProducts) {
+    for (const [position, collectionProduct] of collectionProducts.entries()) {
       const dbProduct = await prisma.product.findUnique({
         where: {
           storeId_shopifyProductId: { storeId, shopifyProductId: String(collectionProduct.id) },
@@ -140,8 +142,8 @@ export async function syncShopifyStore(storeId: string): Promise<void> {
         where: {
           productId_collectionId: { productId: dbProduct.id, collectionId: dbCollection.id },
         },
-        create: { productId: dbProduct.id, collectionId: dbCollection.id },
-        update: {},
+        create: { productId: dbProduct.id, collectionId: dbCollection.id, position },
+        update: { position },
       });
     }
   }

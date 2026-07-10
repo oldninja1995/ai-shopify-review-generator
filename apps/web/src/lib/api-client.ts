@@ -17,3 +17,12 @@ export async function patchJson<T>(url: string, body: unknown): Promise<ApiResul
   });
   return (await response.json()) as ApiResult<T>;
 }
+
+export async function putJson<T>(url: string, body: unknown): Promise<ApiResult<T>> {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return (await response.json()) as ApiResult<T>;
+}

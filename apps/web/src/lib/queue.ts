@@ -5,6 +5,7 @@ import { QUEUE_NAMES } from "@ai-shopify/shared";
 declare global {
   var __redisConnection: Redis | undefined;
   var __shopifySyncQueue: Queue | undefined;
+  var __reviewGenerationQueue: Queue | undefined;
 }
 
 function requireEnv(name: "REDIS_URL"): string {
@@ -22,7 +23,11 @@ const connection =
 export const shopifySyncQueue =
   globalThis.__shopifySyncQueue ?? new Queue(QUEUE_NAMES.SHOPIFY_SYNC, { connection });
 
+export const reviewGenerationQueue =
+  globalThis.__reviewGenerationQueue ?? new Queue(QUEUE_NAMES.REVIEW_GENERATION, { connection });
+
 if (process.env.NODE_ENV !== "production") {
   globalThis.__redisConnection = connection;
   globalThis.__shopifySyncQueue = shopifySyncQueue;
+  globalThis.__reviewGenerationQueue = reviewGenerationQueue;
 }

@@ -12,14 +12,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <div className="flex min-h-screen w-full">
       <DashboardSidebar />
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b bg-card px-4">
           <span className="text-sm font-medium md:hidden">AI Review Generator</span>
           <div className="ml-auto">
             <UserMenu name={user.name} email={user.email} />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto bg-muted/20 p-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-6">{children}</main>
       </div>
     </div>
   );

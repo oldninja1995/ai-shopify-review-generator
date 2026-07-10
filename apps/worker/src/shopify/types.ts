@@ -31,4 +31,5 @@ export type ShopifyCollection = {
   id: number;
   handle: string;
   title: string;
+  sort_order: string;
 };
