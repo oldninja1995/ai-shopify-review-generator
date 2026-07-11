@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { BulkGenerateDialog, type BulkGenerateTarget } from "@/components/dashboard/bulk-generate-dialog";
+import { postJson } from "@/lib/api-client";
 
 export type BulkJobRow = {
   id: string;
@@ -24,6 +26,7 @@ const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = 
   RUNNING: "secondary",
   COMPLETED: "secondary",
   FAILED: "destructive",
+  CANCELLED: "destructive",
 };
 
 export function BulkGenerationPanel({
@@ -36,6 +39,19 @@ export function BulkGenerationPanel({
   const router = useRouter();
   const [target, setTarget] = useState<BulkGenerateTarget | null>(null);
   const [collectionId, setCollectionId] = useState(collections[0]?.value ?? "");
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  async function cancelJob(id: string) {
+    setCancellingId(id);
+    const result = await postJson<{ cancelledQueuedJobs: number }>(`/api/bulk-generation/${id}/cancel`, {});
+    setCancellingId(null);
+    if (!result.success) {
+      toast.error(result.error.message);
+      return;
+    }
+    toast.success("Bulk job cancelled");
+    router.refresh();
+  }
 
   return (
     <Card>
@@ -97,11 +113,24 @@ export function BulkGenerationPanel({
               {jobs.map((job) => {
                 const processed = job.completedCount + job.failedCount;
                 const percent = job.totalCount > 0 ? Math.round((processed / job.totalCount) * 100) : 0;
+                const cancellable = job.status === "PENDING" || job.status === "RUNNING";
                 return (
                   <div key={job.id} className="rounded-lg border p-3 text-sm">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="font-medium">{job.scope}</span>
-                      <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>{job.status}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>{job.status}</Badge>
+                        {cancellable && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            disabled={cancellingId === job.id}
+                            onClick={() => cancelJob(job.id)}
+                          >
+                            {cancellingId === job.id ? "Cancelling..." : "Cancel"}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <Progress value={percent} className="mt-2" />
                     <p className="mt-1 text-xs text-muted-foreground">

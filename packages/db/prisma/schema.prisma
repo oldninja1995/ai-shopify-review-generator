@@ -318,6 +318,7 @@ enum BulkGenerationStatus {
   RUNNING
   COMPLETED
   FAILED
+  CANCELLED
 }
 
 model BulkGenerationJob {
