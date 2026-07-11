@@ -56,7 +56,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
 
       const rating = randomRating();
       let assembled = assembleReview({
-        productTitle: product.title,
         productType: effectiveProductType,
         rating,
         length,
@@ -70,7 +69,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
       while (usedHashes.has(hash) && retries < MAX_HASH_RETRIES) {
         usedCombos.add(assembled.comboKey);
         assembled = assembleReview({
-          productTitle: product.title,
           productType: effectiveProductType,
           rating,
           length,

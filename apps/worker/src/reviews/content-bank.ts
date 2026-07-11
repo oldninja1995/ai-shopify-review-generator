@@ -13,7 +13,7 @@ export function ratingToTier(rating: number): RatingTier {
   return "low";
 }
 
-type Phrase = string; // may contain {title} and {productType} placeholders
+type Phrase = string; // may contain {productType}, {brandCategory}, {brandName} placeholders
 
 export const OPENERS: Record<RatingTier, Phrase[]> = {
   "5": [
@@ -83,57 +83,57 @@ export const DETAILS: Record<RatingTier, Phrase[]> = {
     "The {productType} fits perfectly into my daily routine.",
     "Every detail on the {productType} feels well thought out.",
     "The quality of this {productType} is noticeably better than similar ones I've tried.",
-    "{title} looks even better in person than in the photos.",
+    "It looks even better in person than in the photos.",
     "I've used this {productType} constantly since it arrived and it hasn't let me down once.",
     "The craftsmanship on this {productType} really stands out.",
-    "It's clear a lot of care went into designing {title}.",
-    "Shipping was fast and {title} arrived in perfect condition.",
-    "The packaging alone made {title} feel like a premium product.",
+    "It's clear a lot of care went into designing this {productType}.",
+    "Shipping was fast and it arrived in perfect condition.",
+    "The packaging alone made this {productType} feel like a premium product.",
     "I've compared this {productType} to others and this one wins easily.",
     "This {productType} is sturdier than I expected for the price.",
-    "The little details on {title} make a big difference day to day.",
-    "I appreciate how thoughtfully {title} was designed.",
+    "The little details on this {productType} make a big difference day to day.",
+    "I appreciate how thoughtfully this {productType} was designed.",
     "This {productType} has genuinely made my routine easier.",
-    "I keep noticing new things I like about {title} the more I use it.",
-    "It's clear this brand knows {brandCategory} — {title} really shows that.",
+    "I keep noticing new things I like about this {productType} the more I use it.",
+    "It's clear this brand knows {brandCategory} — this one really shows that.",
     "Compared to other {brandCategory} products I've tried, this one is a standout.",
   ],
   "4": [
     "The {productType} works well, though there's minor room for improvement.",
-    "{title} arrived quickly and matched the description closely.",
+    "It arrived quickly and matched the description closely.",
     "This {productType} feels durable and well-made.",
     "I like most things about this {productType}, aside from a small learning curve.",
-    "The build quality on {title} is better than I expected at this price point.",
+    "The build quality on this {productType} is better than I expected at this price point.",
     "This {productType} does its job reliably.",
-    "{title} was easy to start using right away.",
+    "It was easy to start using right away.",
     "I appreciate the design of this {productType}, even if it's not perfect.",
     "This {productType} has been consistent since day one.",
     "Compared to similar options, this {productType} holds its own.",
-    "{title} looks great and functions just as well.",
+    "It looks great and functions just as well.",
     "The {productType} feels like it'll last a good while.",
     "Solid entry in the {brandCategory} space, worth considering.",
   ],
   "3": [
     "The {productType} works as described, nothing extra.",
-    "{title} is fine for everyday use.",
+    "It's fine for everyday use.",
     "This {productType} gets the job done without standing out.",
     "I think the price of this {productType} is fair, not a bargain.",
-    "{title} matched the listing, at least.",
+    "It matched the listing, at least.",
     "This {productType} is functional but a bit unremarkable.",
     "Nothing wrong with this {productType}, just nothing exceptional either.",
     "This {productType} is average compared to others I've owned.",
-    "{title} does what it says, just without much flair.",
+    "It does what it says, just without much flair.",
     "I'd call this {productType} a safe, unexciting choice.",
   ],
   low: [
     "The {productType} felt less durable than I expected.",
-    "{title} didn't quite match what I pictured from the listing.",
+    "It didn't quite match what I pictured from the listing.",
     "This {productType} required more effort to get used to than I'd like.",
     "I noticed some quality issues with this {productType} early on.",
-    "{title} feels a bit flimsy compared to the price.",
+    "It feels a bit flimsy compared to the price.",
     "This {productType} didn't perform as consistently as I hoped.",
     "I ran into a few small issues with this {productType}.",
-    "{title} works, but not as smoothly as I expected.",
+    "It works, but not as smoothly as I expected.",
   ],
 };
 
@@ -222,28 +222,27 @@ export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
 };
 
 export const FEMALE_FIRST_NAMES = [
-  "Olivia", "Emma", "Ava", "Sophia", "Isabella", "Mia", "Charlotte", "Amelia", "Harper", "Evelyn",
-  "Abigail", "Ella", "Scarlett", "Grace", "Chloe", "Victoria", "Riley", "Aria", "Lily", "Zoey",
-  "Nora", "Hazel", "Layla", "Nova", "Priya", "Aisha", "Yuki", "Sofia", "Camila", "Elena",
+  "Priya", "Lakshmi", "Divya", "Kavya", "Meena", "Anitha", "Deepika", "Swathi", "Ramya", "Sneha",
+  "Pooja", "Nithya", "Aishwarya", "Radhika", "Shreya", "Vidya", "Bhavana", "Keerthana", "Anjali",
+  "Suchitra", "Padma", "Revathi", "Gayathri", "Sowmya", "Vaishnavi", "Harini", "Sindhu", "Roja",
+  "Malini", "Uma",
 ];
 
 export const MALE_FIRST_NAMES = [
-  "Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Alexander",
-  "Mason", "Michael", "Ethan", "Daniel", "Jacob", "Logan", "Jackson", "Sebastian", "Jack", "Owen",
-  "Samuel", "Matthew", "Joseph", "David", "Ravi", "Kenji", "Diego", "Marco", "Andres", "Tomas",
+  "Ravi", "Kiran", "Suresh", "Arjun", "Karthik", "Naveen", "Vijay", "Prakash", "Ganesh", "Srinivas",
+  "Ramesh", "Anand", "Manoj", "Sathish", "Venkat", "Praveen", "Dinesh", "Mahesh", "Rajesh", "Vikram",
+  "Krishna", "Aravind", "Balaji", "Chandran", "Gopal", "Hari", "Jayakumar", "Kumar", "Madhavan",
+  "Naresh",
 ];
 
 export const LAST_NAMES = [
-  "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez",
-  "Martinez", "Hernandez", "Lopez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson",
-  "Martin", "Lee", "Perez", "Thompson", "White", "Harris", "Clark", "Lewis", "Robinson", "Walker",
-  "Young", "Allen", "Nakamura", "Kim", "Patel", "Chen", "Novak", "Rossi", "Andersson", "Dubois",
+  "Iyer", "Iyengar", "Reddy", "Naidu", "Nair", "Menon", "Pillai", "Gowda", "Rao", "Shetty",
+  "Chettiar", "Achari", "Rajan", "Subramaniam", "Krishnan", "Venkataraman", "Balasubramaniam",
+  "Chandrasekaran", "Ramanathan", "Varma", "Acharya", "Bhat", "Kamath", "Shenoy", "Hegde", "Pai",
+  "Prabhu", "Nadar", "Mudaliar", "Pandian",
 ];
 
-export const COUNTRIES = [
-  "United States", "Canada", "United Kingdom", "Australia", "Germany", "France", "Ireland",
-  "New Zealand", "Netherlands", "Sweden", "Spain", "Italy", "Singapore", "South Africa",
-];
+export const COUNTRIES = ["India"];
 
 export const AGE_GROUPS = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"];
 

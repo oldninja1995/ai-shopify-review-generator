@@ -7,10 +7,9 @@ function pick<T>(items: T[]): T {
 
 function fillPlaceholders(
   phrase: string,
-  vars: { title: string; productType: string; brandCategory?: string; brandName?: string },
+  vars: { productType: string; brandCategory?: string; brandName?: string },
 ): string {
   return phrase
-    .replaceAll("{title}", vars.title)
     .replaceAll("{productType}", vars.productType || "product")
     .replaceAll("{brandCategory}", vars.brandCategory || vars.productType || "this category")
     .replaceAll("{brandName}", vars.brandName || "this shop");
@@ -19,7 +18,6 @@ function fillPlaceholders(
 export type AssembledReview = { title: string; content: string; comboKey: string };
 
 export type AssembleReviewParams = {
-  productTitle: string;
   productType: string;
   rating: number;
   length: ReviewLength;
@@ -39,7 +37,7 @@ const DETAIL_COUNT_BY_LENGTH: Record<ReviewLength, number> = {
  * so a single generation request doesn't produce visibly repeated sentence structure.
  */
 export function assembleReview(params: AssembleReviewParams): AssembledReview {
-  const { productTitle, productType, rating, length, brand, excludeCombos } = params;
+  const { productType, rating, length, brand, excludeCombos } = params;
   const tier = ratingToTier(rating);
   const openers = OPENERS[tier];
   const details = DETAILS[tier];
@@ -70,7 +68,7 @@ export function assembleReview(params: AssembleReviewParams): AssembledReview {
     if (!excludeCombos.has(comboKey)) break;
   }
 
-  const vars = { title: productTitle, productType, brandCategory: brand?.category, brandName: brand?.name };
+  const vars = { productType, brandCategory: brand?.category, brandName: brand?.name };
 
   const opener = openers[openerIdx] as string;
   const detailSentences = detailIdxs.map((idx) => fillPlaceholders(details[idx] as string, vars));
