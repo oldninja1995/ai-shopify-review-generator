@@ -2,6 +2,7 @@ import { prisma } from "@ai-shopify/db";
 import { decryptSecret, type ReviewProviderCredentials, type ReviewUploadPayload } from "@ai-shopify/shared";
 import { env } from "../env.js";
 import { reviewProviders } from "./index.js";
+import { logSystemEvent } from "../logging.js";
 
 export async function processUploadJob(uploadJobId: string): Promise<void> {
   const uploadJob = await prisma.uploadJob.findUniqueOrThrow({
@@ -19,7 +20,13 @@ export async function processUploadJob(uploadJobId: string): Promise<void> {
 
   const provider = reviewProviders[uploadJob.providerConfig.provider];
   if (!provider) {
-    await failUploadJob(uploadJobId, uploadJob.reviewId, "Provider does not support automatic upload");
+    await failUploadJob(
+      uploadJobId,
+      uploadJob.reviewId,
+      "Provider does not support automatic upload",
+      uploadJob.review.product.store.userId,
+      uploadJob.review.product.title,
+    );
     return;
   }
 
@@ -51,14 +58,31 @@ export async function processUploadJob(uploadJobId: string): Promise<void> {
         data: { status: "UPLOADED" },
       }),
     ]);
+    await logSystemEvent(
+      "INFO",
+      `Uploaded review for ${uploadJob.review.product.title} to ${uploadJob.providerConfig.provider}`,
+      { userId: uploadJob.review.product.store.userId, metadata: { uploadJobId } },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await failUploadJob(uploadJobId, uploadJob.reviewId, message);
+    await failUploadJob(
+      uploadJobId,
+      uploadJob.reviewId,
+      message,
+      uploadJob.review.product.store.userId,
+      uploadJob.review.product.title,
+    );
     throw error;
   }
 }
 
-async function failUploadJob(uploadJobId: string, reviewId: string, message: string): Promise<void> {
+async function failUploadJob(
+  uploadJobId: string,
+  reviewId: string,
+  message: string,
+  userId: string,
+  productTitle: string,
+): Promise<void> {
   await prisma.$transaction([
     prisma.uploadJob.update({
       where: { id: uploadJobId },
@@ -69,4 +93,8 @@ async function failUploadJob(uploadJobId: string, reviewId: string, message: str
       data: { status: "FAILED" },
     }),
   ]);
+  await logSystemEvent("ERROR", `Upload failed for ${productTitle}: ${message}`, {
+    userId,
+    metadata: { uploadJobId },
+  });
 }

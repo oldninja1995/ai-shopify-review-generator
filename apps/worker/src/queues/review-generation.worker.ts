@@ -3,6 +3,7 @@ import { prisma } from "@ai-shopify/db";
 import { QUEUE_NAMES, type ReviewGenerationJobPayload } from "@ai-shopify/shared";
 import { connection } from "../redis.js";
 import { generateReviewsForProduct } from "../reviews/generate.js";
+import { logSystemEvent } from "../logging.js";
 
 async function recordBulkProgress(bulkJobId: string, field: "completedCount" | "failedCount") {
   const job = await prisma.bulkGenerationJob.update({
@@ -32,6 +33,14 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       if (job.data.bulkJobId) await recordBulkProgress(job.data.bulkJobId, "completedCount");
     } catch (error) {
       if (job.data.bulkJobId) await recordBulkProgress(job.data.bulkJobId, "failedCount");
+      const product = await prisma.product
+        .findUnique({ where: { id: job.data.productId }, include: { store: true } })
+        .catch(() => null);
+      await logSystemEvent(
+        "ERROR",
+        `Review generation failed for ${product?.title ?? job.data.productId}: ${error instanceof Error ? error.message : String(error)}`,
+        { userId: product?.store.userId, metadata: { productId: job.data.productId } },
+      );
       throw error;
     }
   },
