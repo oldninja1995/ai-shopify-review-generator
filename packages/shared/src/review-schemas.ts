@@ -50,3 +50,11 @@ export const bulkGenerateReviewsSchema = z
     path: ["targetIds"],
   });
 export type BulkGenerateReviewsInput = z.infer<typeof bulkGenerateReviewsSchema>;
+
+export const updateReviewSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(200).optional(),
+  content: z.string().trim().min(1, "Content is required").optional(),
+  rating: z.number().int().min(1).max(5).optional(),
+  status: z.enum(["DRAFT", "APPROVED"]).optional(),
+});
+export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
