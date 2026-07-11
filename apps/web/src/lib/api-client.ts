@@ -26,3 +26,8 @@ export async function putJson<T>(url: string, body: unknown): Promise<ApiResult<
   });
   return (await response.json()) as ApiResult<T>;
 }
+
+export async function deleteJson<T>(url: string): Promise<ApiResult<T>> {
+  const response = await fetch(url, { method: "DELETE" });
+  return (await response.json()) as ApiResult<T>;
+}
