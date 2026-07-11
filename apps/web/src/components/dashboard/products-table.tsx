@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -16,6 +17,7 @@ import {
   GenerateReviewsDialog,
   type GenerateReviewsTarget,
 } from "@/components/dashboard/generate-reviews-dialog";
+import { BulkGenerateDialog, type BulkGenerateTarget } from "@/components/dashboard/bulk-generate-dialog";
 
 export type ProductRow = {
   id: string;
@@ -28,12 +30,50 @@ export type ProductRow = {
 
 export function ProductsTable({ products }: { products: ProductRow[] }) {
   const [target, setTarget] = useState<GenerateReviewsTarget | null>(null);
+  const [bulkTarget, setBulkTarget] = useState<BulkGenerateTarget | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const allSelected = products.length > 0 && products.every((p) => selected.has(p.id));
+
+  function toggleAll(checked: boolean) {
+    setSelected(checked ? new Set(products.map((p) => p.id)) : new Set());
+  }
+
+  function toggleOne(id: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
   return (
     <>
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between border-b bg-muted/50 px-4 py-2 text-sm">
+          <span>{selected.size} selected</span>
+          <Button
+            size="sm"
+            onClick={() =>
+              setBulkTarget({
+                scope: "SELECTED",
+                productIds: Array.from(selected),
+                label: `${selected.size} selected product${selected.size === 1 ? "" : "s"}`,
+              })
+            }
+          >
+            <Sparkles />
+            Bulk generate reviews
+          </Button>
+        </div>
+      )}
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10">
+              <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all" />
+            </TableHead>
             <TableHead>Product</TableHead>
             <TableHead>Type</TableHead>
             <TableHead>Variants</TableHead>
@@ -44,6 +84,13 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
         <TableBody>
           {products.map((product) => (
             <TableRow key={product.id}>
+              <TableCell>
+                <Checkbox
+                  checked={selected.has(product.id)}
+                  onCheckedChange={(checked) => toggleOne(product.id, checked)}
+                  aria-label={`Select ${product.title}`}
+                />
+              </TableCell>
               <TableCell className="flex items-center gap-3">
                 {product.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -80,6 +127,15 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
       </Table>
 
       <GenerateReviewsDialog target={target} onOpenChange={(open) => !open && setTarget(null)} />
+      <BulkGenerateDialog
+        target={bulkTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkTarget(null);
+            setSelected(new Set());
+          }
+        }}
+      />
     </>
   );
 }

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ReviewList, type ReviewListItem } from "@/components/dashboard/review-list";
 import { ReviewUploadPanel } from "@/components/dashboard/review-upload-panel";
+import { BulkGenerationPanel, type BulkJobRow } from "@/components/dashboard/bulk-generation-panel";
 
 export default async function ReviewGeneratorPage() {
   const user = await getCurrentUser();
@@ -46,6 +47,29 @@ export default async function ReviewGeneratorPage() {
       })
     : 0;
 
+  const collections = store
+    ? await prisma.collection.findMany({ where: { storeId: store.id }, orderBy: { title: "asc" } })
+    : [];
+  const collectionOptions = collections.map((c) => ({ value: c.id, label: c.title }));
+
+  const bulkJobs: BulkJobRow[] = store
+    ? (
+        await prisma.bulkGenerationJob.findMany({
+          where: { storeId: store.id },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+        })
+      ).map((job) => ({
+        id: job.id,
+        scope: job.scope,
+        totalCount: job.totalCount,
+        completedCount: job.completedCount,
+        failedCount: job.failedCount,
+        status: job.status,
+        createdAt: job.createdAt.toISOString(),
+      }))
+    : [];
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Review Generator</h1>
@@ -61,6 +85,7 @@ export default async function ReviewGeneratorPage() {
         </Card>
       ) : (
         <>
+          <BulkGenerationPanel collections={collectionOptions} jobs={bulkJobs} />
           <ReviewUploadPanel provider={providerConfig?.provider ?? null} eligibleCount={eligibleCount} />
           <Card>
             <CardHeader>

@@ -27,4 +27,26 @@ export type ReviewGenerationJobPayload = {
   femaleCount: number;
   productType?: string;
   length: ReviewLength;
+  bulkJobId?: string;
 };
+
+export const BULK_GENERATION_SCOPES = ["SELECTED", "COLLECTION", "STORE"] as const;
+export type BulkGenerationScope = (typeof BULK_GENERATION_SCOPES)[number];
+
+export const bulkGenerateReviewsSchema = z
+  .object({
+    scope: z.enum(BULK_GENERATION_SCOPES),
+    targetIds: z.array(z.string()).default([]),
+    maleCount: z.number().int().min(0).max(110),
+    femaleCount: z.number().int().min(0).max(110),
+    length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
+  })
+  .refine((value) => value.maleCount + value.femaleCount > 0, {
+    message: "Request at least 1 review per product",
+    path: ["maleCount"],
+  })
+  .refine((value) => value.scope === "STORE" || value.targetIds.length > 0, {
+    message: "Select at least one target",
+    path: ["targetIds"],
+  });
+export type BulkGenerateReviewsInput = z.infer<typeof bulkGenerateReviewsSchema>;
