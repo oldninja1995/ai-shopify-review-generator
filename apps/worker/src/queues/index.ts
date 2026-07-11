@@ -8,7 +8,7 @@ import { connection } from "../redis.js";
  *   SHOPIFY_SYNC            -> done (see ./shopify-sync.worker.ts)
  *   PRODUCT_VISION_ANALYSIS -> Phase 7 (Claude Vision analysis)
  *   REVIEW_GENERATION       -> Phase 9 (review generator) / Phase 12 (bulk)
- *   REVIEW_UPLOAD           -> Phase 13 (upload queue)
+ *   REVIEW_UPLOAD           -> done (see ./review-upload.worker.ts)
  */
 export const shopifySyncQueue = new Queue(QUEUE_NAMES.SHOPIFY_SYNC, { connection });
 export const productVisionAnalysisQueue = new Queue(QUEUE_NAMES.PRODUCT_VISION_ANALYSIS, {

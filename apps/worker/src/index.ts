@@ -2,6 +2,7 @@ import { env } from "./env.js";
 import { createServer } from "./server.js";
 import "./queues/shopify-sync.worker.js";
 import "./queues/review-generation.worker.js";
+import "./queues/review-upload.worker.js";
 
 const app = createServer();
 

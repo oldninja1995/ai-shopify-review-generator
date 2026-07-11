@@ -3,6 +3,7 @@ import { prisma } from "@ai-shopify/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ReviewList, type ReviewListItem } from "@/components/dashboard/review-list";
+import { ReviewUploadPanel } from "@/components/dashboard/review-upload-panel";
 
 export default async function ReviewGeneratorPage() {
   const user = await getCurrentUser();
@@ -36,6 +37,15 @@ export default async function ReviewGeneratorPage() {
       }))
     : [];
 
+  const providerConfig = store
+    ? await prisma.reviewProviderConfig.findFirst({ where: { storeId: store.id, isActive: true } })
+    : null;
+  const eligibleCount = store
+    ? await prisma.generatedReview.count({
+        where: { status: { in: ["DRAFT", "APPROVED"] }, product: { storeId: store.id } },
+      })
+    : 0;
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Review Generator</h1>
@@ -50,24 +60,27 @@ export default async function ReviewGeneratorPage() {
           </CardHeader>
         </Card>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Generated reviews</CardTitle>
-            <CardDescription>
-              Reviews are generated from the Products page — click &quot;Generate reviews&quot; on
-              any product.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            {reviews.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted-foreground">
-                No reviews generated yet.
-              </p>
-            ) : (
-              <ReviewList reviews={reviews} />
-            )}
-          </CardContent>
-        </Card>
+        <>
+          <ReviewUploadPanel provider={providerConfig?.provider ?? null} eligibleCount={eligibleCount} />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Generated reviews</CardTitle>
+              <CardDescription>
+                Reviews are generated from the Products page — click &quot;Generate reviews&quot; on
+                any product.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {reviews.length === 0 ? (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  No reviews generated yet.
+                </p>
+              ) : (
+                <ReviewList reviews={reviews} />
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );

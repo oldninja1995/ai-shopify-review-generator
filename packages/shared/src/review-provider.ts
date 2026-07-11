@@ -40,3 +40,15 @@ export interface ReviewProvider {
     payload: ReviewUploadPayload,
   ): Promise<ReviewUploadResult>;
 }
+
+/**
+ * Providers with a real create-review API (currently just Judge.me — confirmed via research
+ * that AG Product Reviews has no public API and Loox's is read-only). The rest are manual:
+ * exported as CSV instead of queued for upload. Kept here (not just in the worker's provider
+ * registry) so the web app can make upload/export UI decisions without importing worker code.
+ */
+export const AUTO_UPLOAD_PROVIDERS: readonly ReviewProviderName[] = ["JUDGE_ME"];
+
+export function isAutoUploadProvider(provider: ReviewProviderName): boolean {
+  return AUTO_UPLOAD_PROVIDERS.includes(provider);
+}
