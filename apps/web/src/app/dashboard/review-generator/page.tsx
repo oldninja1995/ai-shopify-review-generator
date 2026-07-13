@@ -48,9 +48,19 @@ export default async function ReviewGeneratorPage() {
     : 0;
 
   const collections = store
-    ? await prisma.collection.findMany({ where: { storeId: store.id }, orderBy: { title: "asc" } })
+    ? await prisma.collection.findMany({
+        where: { storeId: store.id },
+        orderBy: { title: "asc" },
+        include: { _count: { select: { products: true } } },
+      })
     : [];
-  const collectionOptions = collections.map((c) => ({ value: c.id, label: c.title }));
+  const collectionOptions = collections.map((c) => ({
+    value: c.id,
+    label: c.title,
+    productCount: c._count.products,
+  }));
+
+  const storeProductCount = store ? await prisma.product.count({ where: { storeId: store.id } }) : 0;
 
   const bulkJobs: BulkJobRow[] = store
     ? (
@@ -85,7 +95,11 @@ export default async function ReviewGeneratorPage() {
         </Card>
       ) : (
         <>
-          <BulkGenerationPanel collections={collectionOptions} jobs={bulkJobs} />
+          <BulkGenerationPanel
+            collections={collectionOptions}
+            jobs={bulkJobs}
+            storeProductCount={storeProductCount}
+          />
           <ReviewUploadPanel provider={providerConfig?.provider ?? null} eligibleCount={eligibleCount} />
           <Card>
             <CardHeader>

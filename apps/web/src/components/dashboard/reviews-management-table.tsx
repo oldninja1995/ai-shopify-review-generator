@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -23,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { patchJson, deleteJson } from "@/lib/api-client";
+import { patchJson, deleteJson, postJson } from "@/lib/api-client";
 
 const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
   DRAFT: "outline",
@@ -53,6 +54,39 @@ export function ReviewsManagementTable({ reviews }: { reviews: ManagedReview[] }
   const [editRating, setEditRating] = useState(5);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkApproving, setBulkApproving] = useState(false);
+
+  const draftReviews = reviews.filter((r) => r.status === "DRAFT");
+  const allSelected = draftReviews.length > 0 && draftReviews.every((r) => selected.has(r.id));
+
+  function toggleAll(checked: boolean) {
+    setSelected(checked ? new Set(draftReviews.map((r) => r.id)) : new Set());
+  }
+
+  function toggleOne(id: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function approveSelected() {
+    setBulkApproving(true);
+    const result = await postJson<{ approvedCount: number }>("/api/reviews/bulk-approve", {
+      ids: Array.from(selected),
+    });
+    setBulkApproving(false);
+    if (!result.success) {
+      toast.error(result.error.message);
+      return;
+    }
+    toast.success(`Approved ${result.data.approvedCount} review${result.data.approvedCount === 1 ? "" : "s"}`);
+    setSelected(new Set());
+    router.refresh();
+  }
 
   function openEdit(review: ManagedReview) {
     setEditing(review);
@@ -106,9 +140,22 @@ export function ReviewsManagementTable({ reviews }: { reviews: ManagedReview[] }
 
   return (
     <>
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between border-b bg-muted/50 px-4 py-2 text-sm">
+          <span>{selected.size} selected</span>
+          <Button size="sm" onClick={approveSelected} disabled={bulkApproving}>
+            {bulkApproving ? "Approving..." : "Approve selected"}
+          </Button>
+        </div>
+      )}
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10">
+              {draftReviews.length > 0 && (
+                <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all drafts" />
+              )}
+            </TableHead>
             <TableHead>Product</TableHead>
             <TableHead>Reviewer</TableHead>
             <TableHead>Rating</TableHead>
@@ -120,6 +167,15 @@ export function ReviewsManagementTable({ reviews }: { reviews: ManagedReview[] }
         <TableBody>
           {reviews.map((review) => (
             <TableRow key={review.id}>
+              <TableCell>
+                {review.status === "DRAFT" && (
+                  <Checkbox
+                    checked={selected.has(review.id)}
+                    onCheckedChange={(checked) => toggleOne(review.id, checked)}
+                    aria-label={`Select review for ${review.productTitle}`}
+                  />
+                )}
+              </TableCell>
               <TableCell className="font-medium">{review.productTitle}</TableCell>
               <TableCell>{review.reviewerName}</TableCell>
               <TableCell>{review.rating} / 5</TableCell>

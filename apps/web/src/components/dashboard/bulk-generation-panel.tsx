@@ -32,9 +32,11 @@ const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = 
 export function BulkGenerationPanel({
   collections,
   jobs,
+  storeProductCount,
 }: {
-  collections: { value: string; label: string }[];
+  collections: { value: string; label: string; productCount: number }[];
   jobs: BulkJobRow[];
+  storeProductCount: number;
 }) {
   const router = useRouter();
   const [target, setTarget] = useState<BulkGenerateTarget | null>(null);
@@ -66,7 +68,13 @@ export function BulkGenerationPanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setTarget({ scope: "STORE", label: "Entire store" })}
+            onClick={() =>
+              setTarget({
+                scope: "STORE",
+                label: `Entire store (${storeProductCount} product${storeProductCount === 1 ? "" : "s"})`,
+                productCount: storeProductCount,
+              })
+            }
           >
             <Sparkles />
             Generate for entire store
@@ -91,7 +99,12 @@ export function BulkGenerationPanel({
                 onClick={() => {
                   const collection = collections.find((c) => c.value === collectionId);
                   if (!collection) return;
-                  setTarget({ scope: "COLLECTION", collectionId: collection.value, label: collection.label });
+                  setTarget({
+                    scope: "COLLECTION",
+                    collectionId: collection.value,
+                    label: `${collection.label} (${collection.productCount} product${collection.productCount === 1 ? "" : "s"})`,
+                    productCount: collection.productCount,
+                  });
                 }}
               >
                 <Sparkles />

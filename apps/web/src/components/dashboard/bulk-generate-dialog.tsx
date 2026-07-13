@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
@@ -31,9 +31,9 @@ const LENGTH_LABELS: Record<ReviewLength, string> = {
 };
 
 export type BulkGenerateTarget =
-  | { scope: "SELECTED"; productIds: string[]; label: string }
-  | { scope: "COLLECTION"; collectionId: string; label: string }
-  | { scope: "STORE"; label: string };
+  | { scope: "SELECTED"; productIds: string[]; label: string; productCount: number }
+  | { scope: "COLLECTION"; collectionId: string; label: string; productCount: number }
+  | { scope: "STORE"; label: string; productCount: number };
 
 /**
  * One shared dialog for every bulk-generation entry point (selected products on the Products
@@ -51,8 +51,30 @@ export function BulkGenerateDialog({
 
   const form = useForm<BulkGenerateReviewsInput>({
     resolver: zodResolver(bulkGenerateReviewsSchema),
-    defaultValues: { scope: "STORE", targetIds: [], maleCount: 2, femaleCount: 2, length: "MEDIUM" },
+    defaultValues: {
+      scope: "STORE",
+      targetIds: [],
+      countMode: "FIXED",
+      maleCount: 2,
+      femaleCount: 2,
+      minPerProduct: 2,
+      maxPerProduct: 6,
+      length: "MEDIUM",
+    },
   });
+
+  const countMode = useWatch({ control: form.control, name: "countMode" });
+  const maleCount = useWatch({ control: form.control, name: "maleCount" });
+  const femaleCount = useWatch({ control: form.control, name: "femaleCount" });
+  const minPerProduct = useWatch({ control: form.control, name: "minPerProduct" });
+  const maxPerProduct = useWatch({ control: form.control, name: "maxPerProduct" });
+
+  const productCount = target?.productCount ?? 0;
+  const perProductEstimate =
+    countMode === "RANDOM"
+      ? ((minPerProduct ?? 0) + (maxPerProduct ?? 0)) / 2
+      : (maleCount ?? 0) + (femaleCount ?? 0);
+  const totalEstimate = Math.round(productCount * perProductEstimate);
 
   useEffect(() => {
     if (target) {
@@ -64,8 +86,11 @@ export function BulkGenerateDialog({
             : target.scope === "COLLECTION"
               ? [target.collectionId]
               : [],
+        countMode: "FIXED",
         maleCount: 2,
         femaleCount: 2,
+        minPerProduct: 2,
+        maxPerProduct: 6,
         length: "MEDIUM",
       });
     }
@@ -91,48 +116,129 @@ export function BulkGenerateDialog({
           <DialogTitle>Bulk generate reviews</DialogTitle>
           <DialogDescription>{target?.label}</DialogDescription>
         </DialogHeader>
+        <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
+          {countMode === "RANDOM" ? "~" : ""}
+          <span className="font-medium">{totalEstimate}</span> review
+          {totalEstimate === 1 ? "" : "s"} will be generated across {productCount} product
+          {productCount === 1 ? "" : "s"}
+          {countMode === "RANDOM" ? " (estimated — actual count is randomized per product)" : ""}
+        </p>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="maleCount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Male reviewers / product</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={110}
-                        {...field}
-                        onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="femaleCount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Female reviewers / product</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={110}
-                        {...field}
-                        onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="countMode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Reviews per product</FormLabel>
+                  <FormControl>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={field.value === "FIXED" ? "default" : "outline"}
+                        onClick={() => field.onChange("FIXED")}
+                      >
+                        Fixed count
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={field.value === "RANDOM" ? "default" : "outline"}
+                        onClick={() => field.onChange("RANDOM")}
+                      >
+                        Random range
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {countMode === "FIXED" ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="maleCount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Male reviewers / product</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={110}
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="femaleCount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Female reviewers / product</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={110}
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="minPerProduct"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Min reviews / product</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={110}
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.valueAsNumber || 1)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="maxPerProduct"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max reviews / product</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={110}
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.valueAsNumber || 1)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
 
             <FormField
               control={form.control}

@@ -8,6 +8,7 @@ export const brandSettingsSchema = z.object({
   brandPersonality: z.string().trim().min(10, "Add a bit more detail").max(1000),
   brandVoice: z.string().trim().min(10, "Add a bit more detail").max(1000),
   targetAudience: z.string().trim().min(10, "Add a bit more detail").max(1000),
+  usp: z.string().trim().max(300).optional(),
   country: z.string().trim().min(2, "Country is required").max(56),
   language: z.string().trim().min(2, "Language is required").max(56),
 });

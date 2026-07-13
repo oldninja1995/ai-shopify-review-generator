@@ -60,6 +60,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                 scope: "SELECTED",
                 productIds: Array.from(selected),
                 label: `${selected.size} selected product${selected.size === 1 ? "" : "s"}`,
+                productCount: selected.size,
               })
             }
           >

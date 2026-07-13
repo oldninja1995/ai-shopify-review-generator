@@ -33,18 +33,32 @@ export type ReviewGenerationJobPayload = {
 export const BULK_GENERATION_SCOPES = ["SELECTED", "COLLECTION", "STORE"] as const;
 export type BulkGenerationScope = (typeof BULK_GENERATION_SCOPES)[number];
 
+export const REVIEW_COUNT_MODES = ["FIXED", "RANDOM"] as const;
+export type ReviewCountMode = (typeof REVIEW_COUNT_MODES)[number];
+
 export const bulkGenerateReviewsSchema = z
   .object({
     scope: z.enum(BULK_GENERATION_SCOPES),
     targetIds: z.array(z.string()).default([]),
-    maleCount: z.number().int().min(0).max(110),
-    femaleCount: z.number().int().min(0).max(110),
+    countMode: z.enum(REVIEW_COUNT_MODES).default("FIXED"),
+    maleCount: z.number().int().min(0).max(110).optional(),
+    femaleCount: z.number().int().min(0).max(110).optional(),
+    minPerProduct: z.number().int().min(1).max(110).optional(),
+    maxPerProduct: z.number().int().min(1).max(110).optional(),
     length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
   })
-  .refine((value) => value.maleCount + value.femaleCount > 0, {
-    message: "Request at least 1 review per product",
-    path: ["maleCount"],
-  })
+  .refine(
+    (value) => value.countMode !== "FIXED" || (value.maleCount ?? 0) + (value.femaleCount ?? 0) > 0,
+    { message: "Request at least 1 review per product", path: ["maleCount"] },
+  )
+  .refine(
+    (value) =>
+      value.countMode !== "RANDOM" ||
+      (value.minPerProduct !== undefined &&
+        value.maxPerProduct !== undefined &&
+        value.minPerProduct <= value.maxPerProduct),
+    { message: "Min must be at least 1 and no greater than max", path: ["minPerProduct"] },
+  )
   .refine((value) => value.scope === "STORE" || value.targetIds.length > 0, {
     message: "Select at least one target",
     path: ["targetIds"],
@@ -58,3 +72,29 @@ export const updateReviewSchema = z.object({
   status: z.enum(["DRAFT", "APPROVED"]).optional(),
 });
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
+
+export const bulkApproveReviewsSchema = z.object({
+  ids: z.array(z.string()).min(1, "Select at least one review"),
+});
+export type BulkApproveReviewsInput = z.infer<typeof bulkApproveReviewsSchema>;
+
+export const DUPLICATE_CHECK_SCOPES = ["ALL", "LIMIT"] as const;
+export type DuplicateCheckScope = (typeof DUPLICATE_CHECK_SCOPES)[number];
+
+export const checkDuplicateReviewsSchema = z
+  .object({
+    scope: z.enum(DUPLICATE_CHECK_SCOPES),
+    limit: z.number().int().min(1).max(20000).optional(),
+  })
+  .refine((value) => value.scope !== "LIMIT" || value.limit !== undefined, {
+    message: "Enter how many recent reviews to check",
+    path: ["limit"],
+  });
+export type CheckDuplicateReviewsInput = z.infer<typeof checkDuplicateReviewsSchema>;
+
+export type DuplicateCheckJobPayload = {
+  jobId: string;
+  storeId: string;
+  scope: DuplicateCheckScope;
+  limit?: number;
+};

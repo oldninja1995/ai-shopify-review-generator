@@ -12,6 +12,7 @@ const EMPTY_VALUES = {
   brandPersonality: "",
   brandVoice: "",
   targetAudience: "",
+  usp: "",
   country: "",
   language: "",
 };
@@ -48,7 +49,9 @@ export default async function BrandSettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Brand Settings</h1>
-      <BrandSettingsForm initialValues={brandSettings ?? EMPTY_VALUES} />
+      <BrandSettingsForm
+        initialValues={brandSettings ? { ...brandSettings, usp: brandSettings.usp ?? "" } : EMPTY_VALUES}
+      />
     </div>
   );
 }

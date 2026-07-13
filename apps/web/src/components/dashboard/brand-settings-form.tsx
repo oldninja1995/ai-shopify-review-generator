@@ -38,15 +38,15 @@ export function BrandSettingsForm({ initialValues }: { initialValues: BrandSetti
       <CardHeader>
         <CardTitle>Brand Settings</CardTitle>
         <CardDescription>
-          Used when generating reviews — brand name and category subtly flavor the generated
-          text. Brand voice and personality are stored for future use; reviews are currently
-          generated in English only regardless of the language set here.
+          Used when generating reviews — brand name, category, and USP subtly flavor the
+          generated text. Brand voice and personality are stored for future use; reviews are
+          currently generated in English only regardless of the language set here.
         </CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="brandName"
@@ -145,7 +145,25 @@ export function BrandSettingsForm({ initialValues }: { initialValues: BrandSetti
               )}
             />
 
-            <div className="grid grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="usp"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Unique selling point / competitive edge</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      rows={2}
+                      placeholder="Phrase it as a continuation of &quot;this brand ___&quot;, e.g. uses 100% recycled packaging"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="country"

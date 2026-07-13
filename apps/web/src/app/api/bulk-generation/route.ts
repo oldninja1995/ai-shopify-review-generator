@@ -59,7 +59,8 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { scope, targetIds, maleCount, femaleCount, length } = parsed.data;
+  const { scope, targetIds, countMode, maleCount, femaleCount, minPerProduct, maxPerProduct, length } =
+    parsed.data;
 
   let products: { id: string }[];
   if (scope === "STORE") {
@@ -91,13 +92,23 @@ export async function POST(request: Request) {
     data: { storeId: store.id, scope, targetIds, totalCount: products.length, status: "RUNNING" },
   });
 
+  function countsForProduct(): { maleCount: number; femaleCount: number } {
+    if (countMode === "RANDOM") {
+      const total =
+        (minPerProduct as number) +
+        Math.floor(Math.random() * ((maxPerProduct as number) - (minPerProduct as number) + 1));
+      const male = Math.round(Math.random() * total);
+      return { maleCount: male, femaleCount: total - male };
+    }
+    return { maleCount: maleCount ?? 0, femaleCount: femaleCount ?? 0 };
+  }
+
   await reviewGenerationQueue.addBulk(
     products.map((product) => ({
       name: "generate",
       data: {
         productId: product.id,
-        maleCount,
-        femaleCount,
+        ...countsForProduct(),
         length,
         bulkJobId: bulkJob.id,
       } satisfies ReviewGenerationJobPayload,

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { prisma, type Prisma, type ReviewStatus } from "@ai-shopify/db";
+import { prisma, type Prisma } from "@ai-shopify/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -9,22 +9,15 @@ import {
   type ManagedReview,
 } from "@/components/dashboard/reviews-management-table";
 import { ReviewsStatusFilter } from "@/components/dashboard/reviews-status-filter";
+import { ReviewsBulkActions } from "@/components/dashboard/reviews-bulk-actions";
+import {
+  DuplicateCheckPanel,
+  type DuplicateCheckJobRow,
+} from "@/components/dashboard/duplicate-check-panel";
+import { resolveReviewStatusFilter } from "@/lib/review-status-filter";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
-
-const REVIEW_STATUSES: ReviewStatus[] = [
-  "DRAFT",
-  "APPROVED",
-  "QUEUED",
-  "UPLOADED",
-  "FAILED",
-  "DUPLICATE_REGENERATED",
-];
-
-function toReviewStatus(value: string | undefined): ReviewStatus | undefined {
-  return REVIEW_STATUSES.find((s) => s === value);
-}
 
 export default async function ReviewsPage({
   searchParams,
@@ -60,10 +53,10 @@ export default async function ReviewsPage({
     );
   }
 
-  const statusFilter: Prisma.GeneratedReviewWhereInput =
-    status === "ALL" ? {} : { status: toReviewStatus(status) ?? { in: ["DRAFT", "APPROVED"] } };
-
-  const where: Prisma.GeneratedReviewWhereInput = { product: { storeId: store.id }, ...statusFilter };
+  const where: Prisma.GeneratedReviewWhereInput = {
+    product: { storeId: store.id },
+    ...resolveReviewStatusFilter(status),
+  };
 
   const [totalCount, rows] = await Promise.all([
     prisma.generatedReview.count({ where }),
@@ -90,6 +83,24 @@ export default async function ReviewsPage({
     createdAt: review.createdAt.toISOString(),
   }));
 
+  const duplicateCheckJobs: DuplicateCheckJobRow[] = (
+    await prisma.duplicateCheckJob.findMany({
+      where: { storeId: store.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    })
+  ).map((job) => ({
+    id: job.id,
+    scope: job.scope,
+    status: job.status,
+    scannedCount: job.scannedCount,
+    totalToDelete: job.totalToDelete,
+    deletedCount: job.deletedCount,
+    contentDuplicatesRemoved: job.contentDuplicatesRemoved,
+    reviewerDuplicatesRemoved: job.reviewerDuplicatesRemoved,
+    createdAt: job.createdAt.toISOString(),
+  }));
+
   function pageHref(targetPage: number): string {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
@@ -99,11 +110,16 @@ export default async function ReviewsPage({
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight">Generated Reviews</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Generated Reviews</h1>
+      </div>
+
+      <DuplicateCheckPanel jobs={duplicateCheckJobs} />
 
       <Card>
-        <div className="flex items-center justify-between border-b p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
           <ReviewsStatusFilter />
+          <ReviewsBulkActions currentStatus={status} />
         </div>
         <CardContent className="p-0">
           {reviews.length === 0 ? (

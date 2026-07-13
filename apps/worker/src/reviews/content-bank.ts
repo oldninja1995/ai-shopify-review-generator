@@ -187,6 +187,21 @@ export const BRAND_CLOSERS: Record<"5" | "4", Phrase[]> = {
   ],
 };
 
+/** USP/competitive-edge-referencing closers, only for positive tiers — swapped in occasionally
+ * when a store has a Brand Settings USP configured. Contains {usp} and {brandName} placeholders;
+ * {usp} is expected to read as a continuation of "this brand ___" (e.g. "uses recycled packaging"). */
+export const USP_CLOSERS: Record<"5" | "4", Phrase[]> = {
+  "5": [
+    "What really won me over is that this brand {usp}.",
+    "Love that {brandName} {usp} — that's a big reason I keep coming back.",
+    "Not many brands {usp}, which makes this one stand out from the rest.",
+  ],
+  "4": [
+    "It's nice that this brand {usp}.",
+    "Appreciate that {brandName} {usp}.",
+  ],
+};
+
 export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
   "5": [
     "Exceeded my expectations",

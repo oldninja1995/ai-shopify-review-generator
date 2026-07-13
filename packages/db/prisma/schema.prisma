@@ -70,11 +70,13 @@ model ShopifyStore {
   updatedAt             DateTime  @updatedAt
 
   brandSettings        BrandSettings?
+  aiSettings           AiSettings?
   products             Product[]
   collections          Collection[]
   reviewerProfiles     ReviewerProfile[]
   reviewProviderConfigs ReviewProviderConfig[]
   bulkGenerationJobs   BulkGenerationJob[]
+  duplicateCheckJobs   DuplicateCheckJob[]
 
   @@index([userId])
   @@map("shopify_stores")
@@ -91,6 +93,7 @@ model BrandSettings {
   brandPersonality String       @db.Text
   brandVoice       String       @db.Text
   targetAudience   String       @db.Text
+  usp              String?      @db.Text
   country          String
   language         String
   createdAt        DateTime     @default(now())
@@ -336,6 +339,46 @@ model BulkGenerationJob {
 
   @@index([storeId])
   @@map("bulk_generation_jobs")
+}
+
+model AiSettings {
+  id              String       @id @default(cuid())
+  storeId         String       @unique
+  store           ShopifyStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  apiKeyEncrypted String?      @db.Text
+  models          String[]     @default([])
+  enabled         Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@map("ai_settings")
+}
+
+enum DuplicateCheckStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model DuplicateCheckJob {
+  id                        String               @id @default(cuid())
+  storeId                   String
+  store                     ShopifyStore         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  scope                     String
+  limitCount                Int?
+  status                    DuplicateCheckStatus @default(PENDING)
+  scannedCount              Int                  @default(0)
+  totalToDelete             Int                  @default(0)
+  deletedCount              Int                  @default(0)
+  contentDuplicatesRemoved  Int                  @default(0)
+  reviewerDuplicatesRemoved Int                  @default(0)
+  errorMessage              String?              @db.Text
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+
+  @@index([storeId])
+  @@map("duplicate_check_jobs")
 }
 
 enum SystemLogLevel {

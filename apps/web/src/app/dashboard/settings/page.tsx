@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronRight, Store, User } from "lucide-react";
+import { ChevronRight, Sparkles, Store, User } from "lucide-react";
 import { prisma } from "@ai-shopify/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +61,20 @@ export default async function SettingsPage() {
           )}
         </CardContent>
       </Card>
+      <Link href="/dashboard/settings/ai">
+        <Card className="transition-colors hover:bg-muted/50">
+          <CardContent className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-3">
+              <Sparkles className="size-5 text-muted-foreground" />
+              <div>
+                <CardTitle className="text-base">AI Generation</CardTitle>
+                <CardDescription>Use a real AI model instead of the phrase-bank generator</CardDescription>
+              </div>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </Link>
     </div>
   );
 }

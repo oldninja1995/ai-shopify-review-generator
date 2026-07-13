@@ -1,5 +1,13 @@
 import type { ReviewLength } from "@ai-shopify/shared";
-import { BRAND_CLOSERS, CLOSERS, DETAILS, OPENERS, ratingToTier, TITLE_PHRASES } from "./content-bank.js";
+import {
+  BRAND_CLOSERS,
+  CLOSERS,
+  DETAILS,
+  OPENERS,
+  ratingToTier,
+  TITLE_PHRASES,
+  USP_CLOSERS,
+} from "./content-bank.js";
 
 function pick<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)] as T;
@@ -7,12 +15,13 @@ function pick<T>(items: T[]): T {
 
 function fillPlaceholders(
   phrase: string,
-  vars: { productType: string; brandCategory?: string; brandName?: string },
+  vars: { productType: string; brandCategory?: string; brandName?: string; usp?: string },
 ): string {
   return phrase
     .replaceAll("{productType}", vars.productType || "product")
     .replaceAll("{brandCategory}", vars.brandCategory || vars.productType || "this category")
-    .replaceAll("{brandName}", vars.brandName || "this shop");
+    .replaceAll("{brandName}", vars.brandName || "this shop")
+    .replaceAll("{usp}", vars.usp || "");
 }
 
 export type AssembledReview = { title: string; content: string; comboKey: string };
@@ -21,7 +30,7 @@ export type AssembleReviewParams = {
   productType: string;
   rating: number;
   length: ReviewLength;
-  brand?: { name?: string; category?: string };
+  brand?: { name?: string; category?: string; usp?: string };
   excludeCombos: Set<string>;
 };
 
@@ -44,12 +53,20 @@ export function assembleReview(params: AssembleReviewParams): AssembledReview {
   const closers = CLOSERS[tier];
   const detailCount = DETAIL_COUNT_BY_LENGTH[length];
   const canUseBrandCloser = (tier === "5" || tier === "4") && Boolean(brand?.name);
+  const canUseUspCloser = (tier === "5" || tier === "4") && Boolean(brand?.usp);
 
   let openerIdx = 0;
   let detailIdxs: number[] = [];
   let useBrandCloser = false;
+  let useUspCloser = false;
   let closerIdx = 0;
   let comboKey = "";
+
+  function pickCloserPool(): string[] {
+    if (useUspCloser) return USP_CLOSERS[tier as "5" | "4"];
+    if (useBrandCloser) return BRAND_CLOSERS[tier as "5" | "4"];
+    return closers;
+  }
 
   for (let attempt = 0; attempt < 25; attempt++) {
     openerIdx = Math.floor(Math.random() * openers.length);
@@ -60,19 +77,21 @@ export function assembleReview(params: AssembleReviewParams): AssembledReview {
       if (!detailIdxs.includes(idx)) detailIdxs.push(idx);
     }
 
-    useBrandCloser = canUseBrandCloser && Math.random() < 0.4;
-    const closerPool = useBrandCloser ? BRAND_CLOSERS[tier as "5" | "4"] : closers;
+    useUspCloser = canUseUspCloser && Math.random() < 0.35;
+    useBrandCloser = !useUspCloser && canUseBrandCloser && Math.random() < 0.4;
+    const closerPool = pickCloserPool();
     closerIdx = Math.floor(Math.random() * closerPool.length);
 
-    comboKey = `${tier}:${length}:${openerIdx}:${detailIdxs.slice().sort().join(",")}:${useBrandCloser ? "b" : "c"}${closerIdx}`;
+    const closerTag = useUspCloser ? "u" : useBrandCloser ? "b" : "c";
+    comboKey = `${tier}:${length}:${openerIdx}:${detailIdxs.slice().sort().join(",")}:${closerTag}${closerIdx}`;
     if (!excludeCombos.has(comboKey)) break;
   }
 
-  const vars = { productType, brandCategory: brand?.category, brandName: brand?.name };
+  const vars = { productType, brandCategory: brand?.category, brandName: brand?.name, usp: brand?.usp };
 
   const opener = openers[openerIdx] as string;
   const detailSentences = detailIdxs.map((idx) => fillPlaceholders(details[idx] as string, vars));
-  const closerPool = useBrandCloser ? BRAND_CLOSERS[tier as "5" | "4"] : closers;
+  const closerPool = pickCloserPool();
   const closer = fillPlaceholders(closerPool[closerIdx] as string, vars);
 
   const content = [opener, ...detailSentences, closer].join(" ");

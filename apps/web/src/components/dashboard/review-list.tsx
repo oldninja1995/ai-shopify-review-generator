@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -14,9 +17,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { deleteJson } from "@/lib/api-client";
 
 const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
   DRAFT: "outline",
@@ -40,7 +45,23 @@ export type ReviewListItem = {
 };
 
 export function ReviewList({ reviews }: { reviews: ReviewListItem[] }) {
+  const router = useRouter();
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function deleteReview(review: ReviewListItem) {
+    if (!confirm(`Delete this review for "${review.productTitle}"? This can't be undone.`)) return;
+    setDeletingId(review.id);
+    const result = await deleteJson(`/api/reviews/${review.id}`);
+    setDeletingId(null);
+    if (!result.success) {
+      toast.error(result.error.message);
+      return;
+    }
+    toast.success("Review deleted");
+    setSelected(null);
+    router.refresh();
+  }
 
   return (
     <>
@@ -52,6 +73,7 @@ export function ReviewList({ reviews }: { reviews: ReviewListItem[] }) {
             <TableHead>Rating</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Created</TableHead>
+            <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -75,6 +97,19 @@ export function ReviewList({ reviews }: { reviews: ReviewListItem[] }) {
                 </Badge>
               </TableCell>
               <TableCell>{new Date(review.createdAt).toLocaleString()}</TableCell>
+              <TableCell className="text-right">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  disabled={deletingId === review.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteReview(review);
+                  }}
+                >
+                  Delete
+                </Button>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -92,6 +127,15 @@ export function ReviewList({ reviews }: { reviews: ReviewListItem[] }) {
                 </DialogDescription>
               </DialogHeader>
               <p className="text-sm leading-relaxed">{selected.content}</p>
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  disabled={deletingId === selected.id}
+                  onClick={() => deleteReview(selected)}
+                >
+                  Delete
+                </Button>
+              </DialogFooter>
             </>
           )}
         </DialogContent>
