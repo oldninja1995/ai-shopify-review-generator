@@ -44,12 +44,13 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       throw error;
     }
   },
-  // 35 products in flight at once. Raised from 10 after confirming (via production job timing)
-  // that the real bottleneck is network wait on OpenRouter calls, not CPU or DB load — Node
-  // handles many concurrent I/O-bound tasks fine. Now paired with generate.ts parallelizing a
-  // product's own reviews too (previously sequential per-product), so this multiplies rather than
-  // just adding more products stuck behind their own internal one-at-a-time review loop.
-  { connection, concurrency: 35 },
+  // 60 products in flight at once. Raised again from 35 — confirmed production DATABASE_URL uses
+  // Neon's pooled (pgbouncer) connection, so Postgres isn't the limiting factor at this level.
+  // The real ceiling now is OpenRouter's per-model rate limits: pushing much higher than this
+  // risks more 429s and fallback-cascading per review (each retry adds latency), which can
+  // actually work against throughput rather than for it. 60 is a deliberate stopping point, not
+  // an arbitrary max — re-tune based on observed 429 rate in worker logs before going higher.
+  { connection, concurrency: 60 },
 );
 
 reviewGenerationWorker.on("failed", (job, error) => {
