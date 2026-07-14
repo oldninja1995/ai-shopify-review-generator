@@ -112,43 +112,48 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
 
   const audience = detectAudienceGender(product.title, effectiveProductType);
 
+  // Phase 1: reserve a reviewer per slot sequentially — this must stay sequential (not
+  // parallelized with phase 2) since usedReviewerIds is mutated after each pick, and two
+  // concurrent picks could otherwise land on the same reviewer for this product's batch. This
+  // phase is DB-only and fast; it's not the bottleneck.
+  type Slot = {
+    gender: "MALE" | "FEMALE";
+    reviewer: Awaited<ReturnType<typeof getOrCreateReviewer>>;
+    giftRecipient?: string;
+    reviewLength: ReviewLength;
+    rating: number;
+  };
+  const slots: Slot[] = [];
   for (const gender of genderQueue) {
-    try {
-      const reviewer = await getOrCreateReviewer(product.storeId, gender, usedReviewerIds);
-      usedReviewerIds.add(reviewer.id);
-      const giftRecipient = audience !== "UNISEX" && audience !== gender ? pickGiftRecipient(gender) : undefined;
-      const reviewLength: ReviewLength =
-        lengthMode === "MIXED" && lengthWeights ? pickWeightedLength(lengthWeights) : length;
+    const reviewer = await getOrCreateReviewer(product.storeId, gender, usedReviewerIds);
+    usedReviewerIds.add(reviewer.id);
+    slots.push({
+      gender,
+      reviewer,
+      giftRecipient: audience !== "UNISEX" && audience !== gender ? pickGiftRecipient(gender) : undefined,
+      reviewLength: lengthMode === "MIXED" && lengthWeights ? pickWeightedLength(lengthWeights) : length,
+      rating: pickWeightedRating(ratingMode === "MIXED" && ratingWeights ? ratingWeights : DEFAULT_RATING_WEIGHTS),
+    });
+  }
 
-      const rating = pickWeightedRating(
-        ratingMode === "MIXED" && ratingWeights ? ratingWeights : DEFAULT_RATING_WEIGHTS,
-      );
-      const reviewerPersona = {
-        name: reviewer.name,
-        gender: reviewer.gender,
-        ageGroup: reviewer.ageGroup,
-        occupation: reviewer.occupation,
-        country: reviewer.country,
-      };
+  // Phase 2: the actual slow part (AI network calls) runs in parallel across the whole batch —
+  // this is what lets worker concurrency translate into real per-product throughput instead of
+  // each product's reviews queueing up one at a time behind each other. usedHashes/usedCombos are
+  // still shared across these concurrent tasks; a same-batch content collision is possible in the
+  // (rare) case two slots finish at nearly the same instant, but that's a cosmetic risk the
+  // per-product duplicate-check job (see duplicate-check.worker.ts) already catches and cleans up.
+  await Promise.all(
+    slots.map(async ({ reviewer, giftRecipient, reviewLength, rating }) => {
+      try {
+        const reviewerPersona = {
+          name: reviewer.name,
+          gender: reviewer.gender,
+          ageGroup: reviewer.ageGroup,
+          occupation: reviewer.occupation,
+          country: reviewer.country,
+        };
 
-      let produced = await produceReview({
-        productType: effectiveProductType,
-        productTitle: product.title,
-        rating,
-        length: reviewLength,
-        brand,
-        reviewer: reviewerPersona,
-        excludeCombos: usedCombos,
-        ai,
-        giftRecipient,
-      });
-      let hash = hashReviewContent(produced.content);
-      let status: "DRAFT" | "DUPLICATE_REGENERATED" = "DRAFT";
-
-      let retries = 0;
-      while (usedHashes.has(hash) && retries < MAX_HASH_RETRIES) {
-        usedCombos.add(produced.comboKey);
-        produced = await produceReview({
+        let produced = await produceReview({
           productType: effectiveProductType,
           productTitle: product.title,
           rating,
@@ -159,30 +164,48 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           ai,
           giftRecipient,
         });
-        hash = hashReviewContent(produced.content);
-        retries++;
-      }
-      if (usedHashes.has(hash)) {
-        status = "DUPLICATE_REGENERATED";
-      }
+        let hash = hashReviewContent(produced.content);
+        let status: "DRAFT" | "DUPLICATE_REGENERATED" = "DRAFT";
 
-      usedCombos.add(produced.comboKey);
-      usedHashes.add(hash);
+        let retries = 0;
+        while (usedHashes.has(hash) && retries < MAX_HASH_RETRIES) {
+          usedCombos.add(produced.comboKey);
+          produced = await produceReview({
+            productType: effectiveProductType,
+            productTitle: product.title,
+            rating,
+            length: reviewLength,
+            brand,
+            reviewer: reviewerPersona,
+            excludeCombos: usedCombos,
+            ai,
+            giftRecipient,
+          });
+          hash = hashReviewContent(produced.content);
+          retries++;
+        }
+        if (usedHashes.has(hash)) {
+          status = "DUPLICATE_REGENERATED";
+        }
 
-      await prisma.generatedReview.create({
-        data: {
-          productId,
-          reviewerProfileId: reviewer.id,
-          rating,
-          title: produced.title,
-          content: produced.content,
-          contentEmbeddingHash: hash,
-          status,
-          reviewDate: randomPastDate(),
-        },
-      });
-    } catch (error) {
-      console.error(`[review-generation] failed to generate one review for product ${productId}:`, error);
-    }
-  }
+        usedCombos.add(produced.comboKey);
+        usedHashes.add(hash);
+
+        await prisma.generatedReview.create({
+          data: {
+            productId,
+            reviewerProfileId: reviewer.id,
+            rating,
+            title: produced.title,
+            content: produced.content,
+            contentEmbeddingHash: hash,
+            status,
+            reviewDate: randomPastDate(),
+          },
+        });
+      } catch (error) {
+        console.error(`[review-generation] failed to generate one review for product ${productId}:`, error);
+      }
+    }),
+  );
 }

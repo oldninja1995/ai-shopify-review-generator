@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +42,16 @@ export function BulkGenerationPanel({
   const [target, setTarget] = useState<BulkGenerateTarget | null>(null);
   const [collectionId, setCollectionId] = useState(collections[0]?.value ?? "");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const hasActiveJob = jobs.some((job) => job.status === "PENDING" || job.status === "RUNNING");
+
+  // Bulk jobs can run for hours on AI-heavy stores — without this, the panel only ever showed
+  // whatever counts were on the page at last load, making a genuinely-progressing job look stuck.
+  useEffect(() => {
+    if (!hasActiveJob) return;
+    const interval = setInterval(() => router.refresh(), 2000);
+    return () => clearInterval(interval);
+  }, [hasActiveJob, router]);
 
   async function cancelJob(id: string) {
     setCancellingId(id);

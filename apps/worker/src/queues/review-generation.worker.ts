@@ -44,11 +44,12 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       throw error;
     }
   },
-  // 10 products in flight at once instead of the BullMQ default of 1. Kept moderate (not higher)
-  // because AI-enabled stores hit OpenRouter per review — this stacks with the random per-review
-  // model pick already spreading load across models, without concentrating too much load on any
-  // one free-tier model's rate limit.
-  { connection, concurrency: 10 },
+  // 35 products in flight at once. Raised from 10 after confirming (via production job timing)
+  // that the real bottleneck is network wait on OpenRouter calls, not CPU or DB load — Node
+  // handles many concurrent I/O-bound tasks fine. Now paired with generate.ts parallelizing a
+  // product's own reviews too (previously sequential per-product), so this multiplies rather than
+  // just adding more products stuck behind their own internal one-at-a-time review loop.
+  { connection, concurrency: 35 },
 );
 
 reviewGenerationWorker.on("failed", (job, error) => {
