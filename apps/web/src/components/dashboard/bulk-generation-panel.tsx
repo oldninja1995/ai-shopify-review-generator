@@ -29,6 +29,30 @@ const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = 
   CANCELLED: "destructive",
 };
 
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60_000);
+  if (totalMinutes < 1) return "under a minute";
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+/** Estimates remaining time from this job's own observed throughput so far (elapsed time /
+ * processed count) rather than a fixed assumption — AI-heavy stores run far slower than
+ * phrase-bank-only ones, so a static estimate would be wrong for most jobs either way. */
+function estimateRemaining(job: BulkJobRow): string | null {
+  if (job.status !== "RUNNING") return null;
+  const processed = job.completedCount + job.failedCount;
+  const remaining = job.totalCount - processed;
+  if (remaining <= 0) return null;
+  if (processed === 0) return "Estimating...";
+
+  const elapsedMs = Date.now() - new Date(job.createdAt).getTime();
+  const msPerProduct = elapsedMs / processed;
+  return `~${formatDuration(remaining * msPerProduct)} remaining`;
+}
+
 export function BulkGenerationPanel({
   collections,
   jobs,
@@ -137,6 +161,7 @@ export function BulkGenerationPanel({
                 const processed = job.completedCount + job.failedCount;
                 const percent = job.totalCount > 0 ? Math.round((processed / job.totalCount) * 100) : 0;
                 const cancellable = job.status === "PENDING" || job.status === "RUNNING";
+                const eta = estimateRemaining(job);
                 return (
                   <div key={job.id} className="rounded-lg border p-3 text-sm">
                     <div className="flex items-center justify-between gap-2">
@@ -160,6 +185,7 @@ export function BulkGenerationPanel({
                       {processed} / {job.totalCount} products
                       {job.failedCount > 0 ? ` (${job.failedCount} failed)` : ""} —{" "}
                       {new Date(job.createdAt).toLocaleString()}
+                      {eta ? ` — ${eta}` : ""}
                     </p>
                   </div>
                 );
