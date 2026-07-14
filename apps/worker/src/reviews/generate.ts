@@ -95,7 +95,7 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
       : undefined;
 
   const existingReviews = await prisma.generatedReview.findMany({
-    where: { product: { storeId: product.storeId } },
+    where: { productId },
     select: { reviewerProfileId: true, contentEmbeddingHash: true },
   });
   const usedReviewerIds = new Set(existingReviews.map((r) => r.reviewerProfileId));

@@ -34,24 +34,40 @@ export const duplicateCheckWorker = new Worker<DuplicateCheckJobPayload>(
       // Oldest first, so the earliest review of a set is always the one kept.
       const chronological = [...reviews].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-      const contentDupeIds = new Set<string>();
-      const seenHash = new Map<string, string>();
+      // Dedup is scoped per-product: with a small shared reviewer pool and a finite
+      // phrase bank, the same reviewer/content hash is EXPECTED to recur across many
+      // products at this app's scale. Flagging that store-wide once deleted 47,528 of
+      // 47,596 reviews in one run. Only flag a reviewer or content hash repeating on
+      // the SAME product as an actual duplicate.
+      const byProduct = new Map<string, typeof chronological>();
       for (const review of chronological) {
-        if (seenHash.has(review.contentEmbeddingHash)) {
-          contentDupeIds.add(review.id);
+        const arr = byProduct.get(review.productId);
+        if (arr) {
+          arr.push(review);
         } else {
-          seenHash.set(review.contentEmbeddingHash, review.id);
+          byProduct.set(review.productId, [review]);
         }
       }
 
+      const contentDupeIds = new Set<string>();
       const reviewerDupeIds = new Set<string>();
-      const seenReviewerProduct = new Map<string, string>();
-      for (const review of chronological) {
-        const keptProductId = seenReviewerProduct.get(review.reviewerProfileId);
-        if (keptProductId === undefined) {
-          seenReviewerProduct.set(review.reviewerProfileId, review.productId);
-        } else if (keptProductId !== review.productId) {
-          reviewerDupeIds.add(review.id);
+      for (const productReviews of byProduct.values()) {
+        const seenHash = new Set<string>();
+        for (const review of productReviews) {
+          if (seenHash.has(review.contentEmbeddingHash)) {
+            contentDupeIds.add(review.id);
+          } else {
+            seenHash.add(review.contentEmbeddingHash);
+          }
+        }
+
+        const seenReviewer = new Set<string>();
+        for (const review of productReviews) {
+          if (seenReviewer.has(review.reviewerProfileId)) {
+            reviewerDupeIds.add(review.id);
+          } else {
+            seenReviewer.add(review.reviewerProfileId);
+          }
         }
       }
 
