@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -46,6 +47,78 @@ export function StatusBreakdown({ counts }: { counts: Record<string, number> }) 
               />
             </div>
             <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">{count}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Ranked bar list, one hue — same job as StatusBreakdown (magnitude by category), just with a
+ * variable, sometimes-long category set (product types) instead of a fixed enum. Longest bar is
+ * always full-width so relative magnitude reads correctly even when the list is truncated to a
+ * top-N slice. */
+export function CategoryBreakdown({ entries }: { entries: { label: string; count: number }[] }) {
+  const max = Math.max(1, ...entries.map((e) => e.count));
+
+  return (
+    <div className="space-y-2">
+      {entries.map((entry) => {
+        const percent = (entry.count / max) * 100;
+        return (
+          <div key={entry.label} className="flex items-center gap-3 text-sm">
+            <span className="w-32 shrink-0 truncate text-muted-foreground" title={entry.label}>
+              {entry.label}
+            </span>
+            <div className="h-3.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-foreground/75"
+                style={{ width: `${percent}%` }}
+                title={`${entry.label}: ${entry.count}`}
+              />
+            </div>
+            <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">
+              {entry.count}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Same ranked-bar-list job as CategoryBreakdown, but each row links to that product's reviews. */
+export function TopProducts({
+  entries,
+}: {
+  entries: { id: string; title: string; count: number }[];
+}) {
+  const max = Math.max(1, ...entries.map((e) => e.count));
+
+  return (
+    <div className="space-y-2">
+      {entries.map((entry, index) => {
+        const percent = (entry.count / max) * 100;
+        return (
+          <div key={entry.id} className="flex items-center gap-3 text-sm">
+            <span className="w-4 shrink-0 tabular-nums text-muted-foreground">{index + 1}.</span>
+            <Link
+              href={`/dashboard/products?q=${encodeURIComponent(entry.title)}`}
+              className="w-40 shrink-0 truncate hover:underline"
+              title={entry.title}
+            >
+              {entry.title}
+            </Link>
+            <div className="h-3.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-foreground/75"
+                style={{ width: `${percent}%` }}
+                title={`${entry.title}: ${entry.count}`}
+              />
+            </div>
+            <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">
+              {entry.count}
+            </span>
           </div>
         );
       })}
