@@ -1,9 +1,11 @@
 import { prisma } from "@ai-shopify/db";
 import {
   decryptSecret,
+  DEFAULT_RATING_WEIGHTS,
   detectAudienceGender,
   pickGiftRecipient,
   pickWeightedLength,
+  pickWeightedRating,
   type ReviewGenerationJobPayload,
   type ReviewLength,
 } from "@ai-shopify/shared";
@@ -15,16 +17,6 @@ import { env } from "../env.js";
 
 const MAX_HASH_RETRIES = 2;
 const MAX_REVIEW_AGE_DAYS = 180;
-
-/** Skewed toward positive ratings, matching typical real-world review distributions. */
-function randomRating(): number {
-  const roll = Math.random();
-  if (roll < 0.55) return 5;
-  if (roll < 0.8) return 4;
-  if (roll < 0.92) return 3;
-  if (roll < 0.97) return 2;
-  return 1;
-}
 
 function randomPastDate(): Date {
   const daysAgo = Math.floor(Math.random() * MAX_REVIEW_AGE_DAYS);
@@ -80,7 +72,8 @@ async function produceReview(params: ProduceReviewParams): Promise<AssembledRevi
 }
 
 export async function generateReviewsForProduct(payload: ReviewGenerationJobPayload): Promise<void> {
-  const { productId, maleCount, femaleCount, lengthMode, length, lengthWeights } = payload;
+  const { productId, maleCount, femaleCount, lengthMode, length, lengthWeights, ratingMode, ratingWeights } =
+    payload;
 
   const product = await prisma.product.findUniqueOrThrow({
     where: { id: productId },
@@ -127,7 +120,9 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
       const reviewLength: ReviewLength =
         lengthMode === "MIXED" && lengthWeights ? pickWeightedLength(lengthWeights) : length;
 
-      const rating = randomRating();
+      const rating = pickWeightedRating(
+        ratingMode === "MIXED" && ratingWeights ? ratingWeights : DEFAULT_RATING_WEIGHTS,
+      );
       const reviewerPersona = {
         name: reviewer.name,
         gender: reviewer.gender,
