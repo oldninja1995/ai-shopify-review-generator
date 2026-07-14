@@ -14,6 +14,7 @@ import {
   DuplicateCheckPanel,
   type DuplicateCheckJobRow,
 } from "@/components/dashboard/duplicate-check-panel";
+import { ReviewUploadPanel } from "@/components/dashboard/review-upload-panel";
 import { resolveReviewStatusFilter } from "@/lib/review-status-filter";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +59,7 @@ export default async function ReviewsPage({
     ...resolveReviewStatusFilter(status),
   };
 
-  const [totalCount, rows] = await Promise.all([
+  const [totalCount, rows, providerConfig, eligibleCount] = await Promise.all([
     prisma.generatedReview.count({ where }),
     prisma.generatedReview.findMany({
       where,
@@ -66,6 +67,10 @@ export default async function ReviewsPage({
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
+    }),
+    prisma.reviewProviderConfig.findFirst({ where: { storeId: store.id, isActive: true } }),
+    prisma.generatedReview.count({
+      where: { status: { in: ["DRAFT", "APPROVED"] }, product: { storeId: store.id } },
     }),
   ]);
 
@@ -115,6 +120,8 @@ export default async function ReviewsPage({
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Generated Reviews</h1>
       </div>
+
+      <ReviewUploadPanel provider={providerConfig?.provider ?? null} eligibleCount={eligibleCount} />
 
       <DuplicateCheckPanel jobs={duplicateCheckJobs} />
 

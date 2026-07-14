@@ -3,7 +3,6 @@ import { prisma } from "@ai-shopify/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ReviewList, type ReviewListItem } from "@/components/dashboard/review-list";
-import { ReviewUploadPanel } from "@/components/dashboard/review-upload-panel";
 import { BulkGenerationPanel, type BulkJobRow } from "@/components/dashboard/bulk-generation-panel";
 
 export default async function ReviewGeneratorPage() {
@@ -37,15 +36,6 @@ export default async function ReviewGeneratorPage() {
         content: review.content,
       }))
     : [];
-
-  const providerConfig = store
-    ? await prisma.reviewProviderConfig.findFirst({ where: { storeId: store.id, isActive: true } })
-    : null;
-  const eligibleCount = store
-    ? await prisma.generatedReview.count({
-        where: { status: { in: ["DRAFT", "APPROVED"] }, product: { storeId: store.id } },
-      })
-    : 0;
 
   const collections = store
     ? await prisma.collection.findMany({
@@ -100,7 +90,6 @@ export default async function ReviewGeneratorPage() {
             jobs={bulkJobs}
             storeProductCount={storeProductCount}
           />
-          <ReviewUploadPanel provider={providerConfig?.provider ?? null} eligibleCount={eligibleCount} />
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Generated reviews</CardTitle>
