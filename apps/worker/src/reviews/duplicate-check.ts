@@ -4,7 +4,9 @@ import { detectAiDuplicates } from "./ai-duplicate-detect.js";
 import { env } from "../env.js";
 
 const DELETE_CHUNK_SIZE = 200;
-const AI_PRODUCT_CONCURRENCY = 5;
+// I/O-bound (network wait on OpenRouter), not CPU/DB-bound — same reasoning as the
+// review-generation concurrency bump (10 -> 60) earlier this session applies here too.
+const AI_PRODUCT_CONCURRENCY = 40;
 
 type ReviewRow = {
   id: string;
@@ -197,7 +199,10 @@ export async function runDuplicateCheckJob(payload: DuplicateCheckJobPayload): P
 
     await prisma.duplicateCheckJob.update({
       where: { id: jobId },
-      data: { scannedCount: checkMode === "EXACT" ? reviews.length : 0 },
+      data: {
+        totalCount: reviews.length,
+        scannedCount: checkMode === "EXACT" ? reviews.length : 0,
+      },
     });
 
     if (checkMode === "AI") {

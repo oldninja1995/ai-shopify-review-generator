@@ -248,6 +248,8 @@ model GeneratedReview {
   @@index([productId])
   @@index([reviewerProfileId])
   @@index([contentEmbeddingHash])
+  @@index([status])
+  @@index([createdAt])
   @@map("generated_reviews")
 }
 
@@ -377,6 +379,7 @@ model DuplicateCheckJob {
   limitCount                Int?
   checkMode                 DuplicateCheckMode   @default(EXACT)
   status                    DuplicateCheckStatus @default(PENDING)
+  totalCount                Int                  @default(0)
   scannedCount              Int                  @default(0)
   totalToDelete             Int                  @default(0)
   deletedCount              Int                  @default(0)
@@ -435,5 +438,6 @@ model SystemLog {
 
   @@index([userId])
   @@index([level])
+  @@index([createdAt])
   @@map("system_logs")
 }

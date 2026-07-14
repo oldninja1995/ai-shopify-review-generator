@@ -94,6 +94,7 @@ export default async function ReviewsPage({
     scope: job.scope,
     checkMode: job.checkMode,
     status: job.status,
+    totalCount: job.totalCount,
     scannedCount: job.scannedCount,
     totalToDelete: job.totalToDelete,
     deletedCount: job.deletedCount,

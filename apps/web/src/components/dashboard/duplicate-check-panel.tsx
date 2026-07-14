@@ -33,6 +33,7 @@ export type DuplicateCheckJobRow = {
   scope: string;
   checkMode: string;
   status: string;
+  totalCount: number;
   scannedCount: number;
   totalToDelete: number;
   deletedCount: number;
@@ -40,6 +41,30 @@ export type DuplicateCheckJobRow = {
   reviewerDuplicatesRemoved: number;
   createdAt: string;
 };
+
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60_000);
+  if (totalMinutes < 1) return "under a minute";
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+/** Estimates remaining time from this job's own observed scan rate (elapsed time / reviews
+ * scanned so far) — AI-mode jobs vary hugely in speed depending on model latency/rate limits, so
+ * a static estimate would be meaningless. Only meaningful once totalCount/scannedCount are
+ * actually populated (both are 0 until the worker's first progress update). */
+function estimateRemaining(job: DuplicateCheckJobRow): string | null {
+  if (job.status !== "RUNNING") return null;
+  if (job.totalCount <= 0 || job.scannedCount <= 0) return null;
+  const remaining = job.totalCount - job.scannedCount;
+  if (remaining <= 0) return null;
+
+  const elapsedMs = Date.now() - new Date(job.createdAt).getTime();
+  const msPerReview = elapsedMs / job.scannedCount;
+  return `~${formatDuration(remaining * msPerReview)} remaining`;
+}
 
 export function DuplicateCheckPanel({ jobs }: { jobs: DuplicateCheckJobRow[] }) {
   const router = useRouter();
@@ -92,6 +117,9 @@ export function DuplicateCheckPanel({ jobs }: { jobs: DuplicateCheckJobRow[] }) 
         <div className="space-y-2">
           {jobs.map((job) => {
             const isAiMode = job.checkMode === "AI";
+            const isQueuedBehindAnother =
+              job.status === "PENDING" && jobs.some((j) => j.id !== job.id && j.status === "RUNNING");
+            const eta = estimateRemaining(job);
             const denominator = job.totalToDelete > 0 ? job.totalToDelete : job.scannedCount;
             const numerator = job.totalToDelete > 0 ? job.deletedCount : job.status === "COMPLETED" ? 1 : 0;
             const percent =
@@ -120,10 +148,13 @@ export function DuplicateCheckPanel({ jobs }: { jobs: DuplicateCheckJobRow[] }) 
                 </div>
                 <Progress value={percent} className="mt-2" />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {job.status === "PENDING" && "Waiting to start..."}
+                  {job.status === "PENDING" &&
+                    (isQueuedBehindAnother
+                      ? "Queued — waiting for another check to finish first..."
+                      : "Waiting to start...")}
                   {job.status === "RUNNING" &&
                     (isAiMode
-                      ? `Scanning: ${job.totalToDelete} likely duplicate${job.totalToDelete === 1 ? "" : "s"} found so far (scanned ${job.scannedCount})`
+                      ? `Scanning: ${job.totalToDelete} likely duplicate${job.totalToDelete === 1 ? "" : "s"} found so far (scanned ${job.scannedCount}${job.totalCount > 0 ? ` / ${job.totalCount}` : ""})${eta ? ` — ${eta}` : ""}`
                       : job.totalToDelete > 0
                         ? `Removing duplicates: ${job.deletedCount} / ${job.totalToDelete}`
                         : `Scanned ${job.scannedCount} reviews...`)}
