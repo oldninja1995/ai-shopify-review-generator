@@ -48,20 +48,32 @@ export async function POST() {
     return NextResponse.json(apiSuccess({ queued: 0 }));
   }
 
-  const uploadJobIds: string[] = [];
-  for (const review of eligibleReviews) {
-    const uploadJob = await prisma.uploadJob.create({
-      data: { reviewId: review.id, providerConfigId: providerConfig.id },
-    });
-    uploadJobIds.push(uploadJob.id);
-  }
+  // A one-row-at-a-time loop here previously created UploadJob rows sequentially — at real-world
+  // scale (100k+ eligible reviews) that reliably blew past the serverless function's execution
+  // timeout partway through, leaving a pile of DB rows created but never actually enqueued into
+  // BullMQ (the addBulk call, positioned after the loop, never ran). createMany is one query
+  // instead of N.
+  const reviewIds = eligibleReviews.map((r) => r.id);
+  const batchStart = new Date();
+  await prisma.uploadJob.createMany({
+    data: reviewIds.map((reviewId) => ({ reviewId, providerConfigId: providerConfig.id })),
+  });
+
+  const createdJobs = await prisma.uploadJob.findMany({
+    where: { reviewId: { in: reviewIds }, providerConfigId: providerConfig.id, createdAt: { gte: batchStart } },
+    select: { id: true },
+  });
+
   await prisma.generatedReview.updateMany({
-    where: { id: { in: eligibleReviews.map((r) => r.id) } },
+    where: { id: { in: reviewIds } },
     data: { status: "QUEUED" },
   });
-  await reviewUploadQueue.addBulk(
-    uploadJobIds.map((uploadJobId) => ({ name: "upload", data: { uploadJobId } })),
-  );
 
-  return NextResponse.json(apiSuccess({ queued: uploadJobIds.length }));
+  const ENQUEUE_CHUNK_SIZE = 5000;
+  for (let i = 0; i < createdJobs.length; i += ENQUEUE_CHUNK_SIZE) {
+    const chunk = createdJobs.slice(i, i + ENQUEUE_CHUNK_SIZE);
+    await reviewUploadQueue.addBulk(chunk.map((job) => ({ name: "upload", data: { uploadJobId: job.id } })));
+  }
+
+  return NextResponse.json(apiSuccess({ queued: createdJobs.length }));
 }
