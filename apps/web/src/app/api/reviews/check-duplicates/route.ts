@@ -35,10 +35,16 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { scope, limit } = parsed.data;
+  const { scope, limit, checkMode } = parsed.data;
 
   const job = await prisma.duplicateCheckJob.create({
-    data: { storeId: store.id, scope, limitCount: scope === "LIMIT" ? limit : null, status: "PENDING" },
+    data: {
+      storeId: store.id,
+      scope,
+      limitCount: scope === "LIMIT" ? limit : null,
+      checkMode,
+      status: "PENDING",
+    },
   });
 
   await duplicateCheckQueue.add("check", {
@@ -46,6 +52,7 @@ export async function POST(request: Request) {
     storeId: store.id,
     scope,
     limit,
+    checkMode,
   } satisfies DuplicateCheckJobPayload);
 
   return NextResponse.json(apiSuccess({ jobId: job.id }));

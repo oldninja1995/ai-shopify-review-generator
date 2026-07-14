@@ -92,6 +92,7 @@ export default async function ReviewsPage({
   ).map((job) => ({
     id: job.id,
     scope: job.scope,
+    checkMode: job.checkMode,
     status: job.status,
     scannedCount: job.scannedCount,
     totalToDelete: job.totalToDelete,

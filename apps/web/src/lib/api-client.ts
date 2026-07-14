@@ -14,6 +14,11 @@ async function toApiResult<T>(response: Response): Promise<ApiResult<T>> {
   return (await response.json()) as ApiResult<T>;
 }
 
+export async function getJson<T>(url: string): Promise<ApiResult<T>> {
+  const response = await fetch(url);
+  return toApiResult<T>(response);
+}
+
 export async function postJson<T>(url: string, body: unknown): Promise<ApiResult<T>> {
   const response = await fetch(url, {
     method: "POST",

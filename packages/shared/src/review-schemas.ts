@@ -192,10 +192,18 @@ export type BulkApproveReviewsInput = z.infer<typeof bulkApproveReviewsSchema>;
 export const DUPLICATE_CHECK_SCOPES = ["ALL", "LIMIT"] as const;
 export type DuplicateCheckScope = (typeof DUPLICATE_CHECK_SCOPES)[number];
 
+/** EXACT: today's original behavior — hash/reviewer-id equality, auto-deletes immediately.
+ * AI: uses the store's configured AI models to judge near-duplicate content (catches paraphrases
+ * exact matching misses) — flags for review instead of auto-deleting, since an LLM's judgment is
+ * less certain than exact matching. */
+export const DUPLICATE_CHECK_MODES = ["EXACT", "AI"] as const;
+export type DuplicateCheckMode = (typeof DUPLICATE_CHECK_MODES)[number];
+
 export const checkDuplicateReviewsSchema = z
   .object({
     scope: z.enum(DUPLICATE_CHECK_SCOPES),
     limit: z.number().int().min(1).max(20000).optional(),
+    checkMode: z.enum(DUPLICATE_CHECK_MODES).default("EXACT"),
   })
   .refine((value) => value.scope !== "LIMIT" || value.limit !== undefined, {
     message: "Enter how many recent reviews to check",
@@ -208,4 +216,5 @@ export type DuplicateCheckJobPayload = {
   storeId: string;
   scope: DuplicateCheckScope;
   limit?: number;
+  checkMode: DuplicateCheckMode;
 };

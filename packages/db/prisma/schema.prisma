@@ -243,6 +243,7 @@ model GeneratedReview {
   updatedAt             DateTime        @updatedAt
 
   uploadJobs UploadJob[]
+  duplicateCheckFlags DuplicateCheckFlag[]
 
   @@index([productId])
   @@index([reviewerProfileId])
@@ -357,8 +358,15 @@ model AiSettings {
 enum DuplicateCheckStatus {
   PENDING
   RUNNING
+  AWAITING_CONFIRMATION
   COMPLETED
+  DISMISSED
   FAILED
+}
+
+enum DuplicateCheckMode {
+  EXACT
+  AI
 }
 
 model DuplicateCheckJob {
@@ -367,6 +375,7 @@ model DuplicateCheckJob {
   store                     ShopifyStore         @relation(fields: [storeId], references: [id], onDelete: Cascade)
   scope                     String
   limitCount                Int?
+  checkMode                 DuplicateCheckMode   @default(EXACT)
   status                    DuplicateCheckStatus @default(PENDING)
   scannedCount              Int                  @default(0)
   totalToDelete             Int                  @default(0)
@@ -377,8 +386,36 @@ model DuplicateCheckJob {
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
 
+  flags DuplicateCheckFlag[]
+
   @@index([storeId])
   @@map("duplicate_check_jobs")
+}
+
+enum DuplicateFlagReason {
+  CONTENT
+  REVIEWER
+}
+
+/** One row per review flagged as a likely duplicate during an AI-mode check — persisted so the
+ * "preview before delete" flow has something concrete to show and act on, rather than re-running
+ * the (costly, non-deterministic) AI scan again at confirm time. EXACT-mode checks don't use this
+ * at all — they still auto-delete immediately, same as before. */
+model DuplicateCheckFlag {
+  id              String              @id @default(cuid())
+  jobId           String
+  job             DuplicateCheckJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  reviewId        String
+  review          GeneratedReview     @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  productId       String
+  reason          DuplicateFlagReason
+  /** For CONTENT flags, the earlier review in the same product this was judged a near-duplicate
+   * of — informational only (not a formal FK, so a since-deleted review doesn't break this row). */
+  matchedReviewId String?
+  createdAt       DateTime            @default(now())
+
+  @@index([jobId])
+  @@map("duplicate_check_flags")
 }
 
 enum SystemLogLevel {
