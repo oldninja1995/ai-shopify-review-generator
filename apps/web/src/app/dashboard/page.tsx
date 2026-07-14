@@ -13,13 +13,25 @@ export default async function DashboardHomePage() {
         orderBy: { connectedAt: "desc" },
       })
     : null;
-  const productsSynced = store ? await prisma.product.count({ where: { storeId: store.id } }) : 0;
+  const [productsSynced, reviewsGenerated, reviewsUploaded, pendingUploads] = store
+    ? await Promise.all([
+        prisma.product.count({ where: { storeId: store.id } }),
+        prisma.generatedReview.count({ where: { product: { storeId: store.id } } }),
+        prisma.generatedReview.count({ where: { product: { storeId: store.id }, status: "UPLOADED" } }),
+        prisma.uploadJob.count({
+          where: {
+            review: { product: { storeId: store.id } },
+            status: { in: ["PENDING", "PROCESSING"] },
+          },
+        }),
+      ])
+    : [0, 0, 0, 0];
 
   const STATS = [
     { label: "Products synced", value: productsSynced, icon: Package },
-    { label: "Reviews generated", value: 0, icon: Sparkles },
-    { label: "Reviews uploaded", value: 0, icon: MessageSquareText },
-    { label: "Pending uploads", value: 0, icon: UploadCloud },
+    { label: "Reviews generated", value: reviewsGenerated, icon: Sparkles },
+    { label: "Reviews uploaded", value: reviewsUploaded, icon: MessageSquareText },
+    { label: "Pending uploads", value: pendingUploads, icon: UploadCloud },
   ];
 
   return (
