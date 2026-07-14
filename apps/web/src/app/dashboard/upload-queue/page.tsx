@@ -45,8 +45,9 @@ export default async function UploadQueuePage({
   }
 
   const where = { review: { product: { storeId: store.id } } };
+  const RECENT_WINDOW_MS = 5 * 60 * 1000;
 
-  const [totalCount, rows, statusCounts] = await Promise.all([
+  const [totalCount, rows, statusCounts, recentSucceededCount] = await Promise.all([
     prisma.uploadJob.count({ where }),
     prisma.uploadJob.findMany({
       where,
@@ -56,6 +57,12 @@ export default async function UploadQueuePage({
       take: PAGE_SIZE,
     }),
     prisma.uploadJob.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    // Recent-throughput window rather than "since a job started" — uploads happen as a continuous
+    // stream (new UploadJob rows get added over time, e.g. from Approve actions), not one
+    // discrete batch with a start time the way BulkGenerationJob/DuplicateCheckJob have.
+    prisma.uploadJob.count({
+      where: { ...where, status: "SUCCEEDED", uploadedAt: { gte: new Date(Date.now() - RECENT_WINDOW_MS) } },
+    }),
   ]);
 
   const countByStatus = Object.fromEntries(statusCounts.map((row) => [row.status, row._count._all]));
@@ -65,6 +72,8 @@ export default async function UploadQueuePage({
     failed: countByStatus.FAILED ?? 0,
     pending: countByStatus.PENDING ?? 0,
     processing: countByStatus.PROCESSING ?? 0,
+    recentSucceededCount,
+    recentWindowMs: RECENT_WINDOW_MS,
   };
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
