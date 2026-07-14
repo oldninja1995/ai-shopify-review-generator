@@ -21,6 +21,10 @@ export async function processUploadJob(uploadJobId: string, isFinalAttempt: bool
     },
   });
 
+  // Guards the race where this job was already dequeued before a cancel request reached the
+  // queue — same pattern as review-generation.worker.ts's bulk-job cancel check.
+  if (uploadJob.status === "CANCELLED") return;
+
   await prisma.uploadJob.update({
     where: { id: uploadJobId },
     data: { status: "PROCESSING", attempts: { increment: 1 } },

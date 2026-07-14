@@ -20,6 +20,7 @@ const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = 
   PROCESSING: "secondary",
   SUCCEEDED: "secondary",
   FAILED: "destructive",
+  CANCELLED: "outline",
 };
 
 export type UploadQueueRow = {

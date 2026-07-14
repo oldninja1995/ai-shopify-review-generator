@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { postJson } from "@/lib/api-client";
 
 export type UploadQueueSummary = {
   total: number;
@@ -39,6 +42,7 @@ function estimateRemaining(summary: UploadQueueSummary, inFlight: number): strin
  * background progress. */
 export function UploadQueueProgress({ summary }: { summary: UploadQueueSummary }) {
   const router = useRouter();
+  const [cancelling, setCancelling] = useState(false);
   const inFlight = summary.pending + summary.processing;
   const processed = summary.succeeded + summary.failed;
   const percent = summary.total > 0 ? Math.round((processed / summary.total) * 100) : 0;
@@ -50,6 +54,18 @@ export function UploadQueueProgress({ summary }: { summary: UploadQueueSummary }
     return () => clearInterval(interval);
   }, [inFlight, router]);
 
+  async function cancelRemaining() {
+    setCancelling(true);
+    const result = await postJson<{ cancelled: number }>("/api/upload-queue/cancel", {});
+    setCancelling(false);
+    if (!result.success) {
+      toast.error(result.error.message);
+      return;
+    }
+    toast.success(`Cancelled ${result.data.cancelled} pending upload${result.data.cancelled === 1 ? "" : "s"}`);
+    router.refresh();
+  }
+
   if (summary.total === 0) return null;
 
   return (
@@ -59,11 +75,18 @@ export function UploadQueueProgress({ summary }: { summary: UploadQueueSummary }
           {inFlight > 0 ? `Uploading — ${processed} / ${summary.total}` : `${processed} / ${summary.total} processed`}
           {eta ? ` — ${eta}` : ""}
         </span>
-        <span className="text-xs text-muted-foreground">
-          {summary.succeeded} succeeded
-          {summary.failed > 0 ? `, ${summary.failed} failed` : ""}
-          {inFlight > 0 ? `, ${inFlight} in progress` : ""}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {summary.succeeded} succeeded
+            {summary.failed > 0 ? `, ${summary.failed} failed` : ""}
+            {inFlight > 0 ? `, ${inFlight} in progress` : ""}
+          </span>
+          {summary.pending > 0 && (
+            <Button variant="ghost" size="xs" disabled={cancelling} onClick={cancelRemaining}>
+              {cancelling ? "Cancelling..." : "Cancel remaining"}
+            </Button>
+          )}
+        </div>
       </div>
       <Progress value={percent} />
     </div>

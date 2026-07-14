@@ -287,6 +287,7 @@ enum UploadJobStatus {
   PROCESSING
   SUCCEEDED
   FAILED
+  CANCELLED
 }
 
 model UploadJob {
