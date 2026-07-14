@@ -1,10 +1,18 @@
 import { prisma } from "@ai-shopify/db";
-import { decryptSecret, type ReviewProviderCredentials, type ReviewUploadPayload } from "@ai-shopify/shared";
+import {
+  decryptSecret,
+  ProviderUploadError,
+  type ReviewProviderCredentials,
+  type ReviewUploadPayload,
+} from "@ai-shopify/shared";
 import { env } from "../env.js";
 import { reviewProviders } from "./index.js";
 import { logSystemEvent } from "../logging.js";
 
-export async function processUploadJob(uploadJobId: string): Promise<void> {
+/** `isFinalAttempt` comes from BullMQ's own retry bookkeeping (job.attemptsMade vs job.opts.attempts)
+ * — only permanently mark a review FAILED once retries are genuinely exhausted, not on the first
+ * transient hiccup (e.g. a 429 from the provider), which BullMQ will retry with backoff on its own. */
+export async function processUploadJob(uploadJobId: string, isFinalAttempt: boolean): Promise<void> {
   const uploadJob = await prisma.uploadJob.findUniqueOrThrow({
     where: { id: uploadJobId },
     include: {
@@ -65,13 +73,26 @@ export async function processUploadJob(uploadJobId: string): Promise<void> {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await failUploadJob(
-      uploadJobId,
-      uploadJob.reviewId,
-      message,
-      uploadJob.review.product.store.userId,
-      uploadJob.review.product.title,
-    );
+    const retryable = error instanceof ProviderUploadError && error.retryable;
+
+    if (retryable && !isFinalAttempt) {
+      // Leave status as PROCESSING (not FAILED) — BullMQ will retry this job with backoff, and a
+      // permanent-looking FAILED status here would be misleading for something about to self-heal.
+      await prisma.uploadJob.update({ where: { id: uploadJobId }, data: { lastError: message } });
+      await logSystemEvent(
+        "INFO",
+        `Upload for ${uploadJob.review.product.title} hit a transient error, will retry: ${message}`,
+        { userId: uploadJob.review.product.store.userId, metadata: { uploadJobId } },
+      );
+    } else {
+      await failUploadJob(
+        uploadJobId,
+        uploadJob.reviewId,
+        message,
+        uploadJob.review.product.store.userId,
+        uploadJob.review.product.title,
+      );
+    }
     throw error;
   }
 }

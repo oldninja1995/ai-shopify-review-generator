@@ -1,8 +1,9 @@
-import type {
-  ReviewProvider,
-  ReviewProviderCredentials,
-  ReviewUploadPayload,
-  ReviewUploadResult,
+import {
+  ProviderUploadError,
+  type ReviewProvider,
+  type ReviewProviderCredentials,
+  type ReviewUploadPayload,
+  type ReviewUploadResult,
 } from "@ai-shopify/shared";
 
 const JUDGE_ME_REVIEWS_ENDPOINT = "https://judge.me/api/v1/reviews";
@@ -51,7 +52,13 @@ export const judgeMeProvider: ReviewProvider = {
     });
 
     if (!response.ok) {
-      throw new Error(`Judge.me API error ${response.status}: ${await response.text()}`);
+      // 429 (rate limited) and 5xx (Judge.me having a bad moment) are transient — worth retrying.
+      // Anything else (bad request, auth, etc.) is a real problem that won't fix itself on retry.
+      const retryable = response.status === 429 || response.status >= 500;
+      throw new ProviderUploadError(`Judge.me API error ${response.status}: ${await response.text()}`, {
+        status: response.status,
+        retryable,
+      });
     }
 
     const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;

@@ -41,6 +41,21 @@ export interface ReviewProvider {
   ): Promise<ReviewUploadResult>;
 }
 
+/** Thrown by a provider plugin's `uploadReview` so callers can tell a transient failure (rate
+ * limited, provider having a bad moment) from a permanent one (bad credentials, malformed
+ * request) — a 429 should be retried, not immediately surfaced to the user as a dead review. */
+export class ProviderUploadError extends Error {
+  readonly status?: number;
+  readonly retryable: boolean;
+
+  constructor(message: string, options: { status?: number; retryable: boolean }) {
+    super(message);
+    this.name = "ProviderUploadError";
+    this.status = options.status;
+    this.retryable = options.retryable;
+  }
+}
+
 /**
  * Providers with a real create-review API (currently just Judge.me — confirmed via research
  * that AG Product Reviews has no public API and Loox's is read-only). The rest are manual:

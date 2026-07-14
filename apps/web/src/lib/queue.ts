@@ -29,7 +29,14 @@ export const reviewGenerationQueue =
   globalThis.__reviewGenerationQueue ?? new Queue(QUEUE_NAMES.REVIEW_GENERATION, { connection });
 
 export const reviewUploadQueue =
-  globalThis.__reviewUploadQueue ?? new Queue(QUEUE_NAMES.REVIEW_UPLOAD, { connection });
+  globalThis.__reviewUploadQueue ??
+  new Queue(QUEUE_NAMES.REVIEW_UPLOAD, {
+    connection,
+    // Judge.me (and other providers) can return a transient 429/5xx under bursts — retry with
+    // growing backoff instead of a single hit-or-miss attempt. Applies to every job added via
+    // this queue instance (bulk upload, single retry) without each call site needing to remember it.
+    defaultJobOptions: { attempts: 4, backoff: { type: "exponential", delay: 3000 } },
+  });
 
 export const duplicateCheckQueue =
   globalThis.__duplicateCheckQueue ?? new Queue(QUEUE_NAMES.DUPLICATE_CHECK, { connection });
