@@ -8,3 +8,4 @@ export * from "./review-schemas";
 export * from "./brand-schemas";
 export * from "./review-provider-schemas";
 export * from "./ai-settings-schemas";
+export * from "./audience-gender";

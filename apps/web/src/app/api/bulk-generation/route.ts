@@ -4,6 +4,7 @@ import {
   apiFailure,
   apiSuccess,
   bulkGenerateReviewsSchema,
+  detectAudienceGender,
   type ReviewGenerationJobPayload,
 } from "@ai-shopify/shared";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -59,26 +60,36 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { scope, targetIds, countMode, maleCount, femaleCount, minPerProduct, maxPerProduct, length } =
-    parsed.data;
+  const {
+    scope,
+    targetIds,
+    countMode,
+    maleCount,
+    femaleCount,
+    minPerProduct,
+    maxPerProduct,
+    lengthMode,
+    length,
+    lengthWeights,
+  } = parsed.data;
 
-  let products: { id: string }[];
+  let products: { id: string; title: string; productType: string }[];
   if (scope === "STORE") {
     products = await prisma.product.findMany({
       where: { storeId: store.id },
-      select: { id: true },
+      select: { id: true, title: true, productType: true },
     });
   } else if (scope === "COLLECTION") {
     const collectionId = targetIds[0];
     const rows = await prisma.productCollection.findMany({
       where: { collectionId, product: { storeId: store.id } },
-      select: { productId: true },
+      select: { product: { select: { id: true, title: true, productType: true } } },
     });
-    products = rows.map((row) => ({ id: row.productId }));
+    products = rows.map((row) => row.product);
   } else {
     products = await prisma.product.findMany({
       where: { id: { in: targetIds }, storeId: store.id },
-      select: { id: true },
+      select: { id: true, title: true, productType: true },
     });
   }
 
@@ -92,15 +103,38 @@ export async function POST(request: Request) {
     data: { storeId: store.id, scope, targetIds, totalCount: products.length, status: "RUNNING" },
   });
 
-  function countsForProduct(): { maleCount: number; femaleCount: number } {
+  // A skewed 90/10 split when the product reads as gendered (e.g. a women's chain) instead of
+  // an arbitrary 50/50 — full elimination of the minority gender would remove gift-purchase
+  // reviews entirely, which are realistic in small numbers, just not at parity with the majority.
+  function skewToAudience(
+    total: number,
+    audience: ReturnType<typeof detectAudienceGender>,
+    unisexMale: number,
+  ): { maleCount: number; femaleCount: number } {
+    if (audience === "UNISEX") return { maleCount: unisexMale, femaleCount: total - unisexMale };
+    const majorityCount = Math.round(total * 0.9);
+    const minorityCount = total - majorityCount;
+    return audience === "FEMALE"
+      ? { maleCount: minorityCount, femaleCount: majorityCount }
+      : { maleCount: majorityCount, femaleCount: minorityCount };
+  }
+
+  function countsForProduct(product: {
+    title: string;
+    productType: string;
+  }): { maleCount: number; femaleCount: number } {
+    const audience = detectAudienceGender(product.title, product.productType);
+
     if (countMode === "RANDOM") {
       const total =
         (minPerProduct as number) +
         Math.floor(Math.random() * ((maxPerProduct as number) - (minPerProduct as number) + 1));
-      const male = Math.round(Math.random() * total);
-      return { maleCount: male, femaleCount: total - male };
+      return skewToAudience(total, audience, Math.round(Math.random() * total));
     }
-    return { maleCount: maleCount ?? 0, femaleCount: femaleCount ?? 0 };
+
+    const baseMale = maleCount ?? 0;
+    const baseFemale = femaleCount ?? 0;
+    return skewToAudience(baseMale + baseFemale, audience, baseMale);
   }
 
   await reviewGenerationQueue.addBulk(
@@ -108,8 +142,10 @@ export async function POST(request: Request) {
       name: "generate",
       data: {
         productId: product.id,
-        ...countsForProduct(),
+        ...countsForProduct(product),
+        lengthMode,
         length,
+        lengthWeights,
         bulkJobId: bulkJob.id,
       } satisfies ReviewGenerationJobPayload,
     })),

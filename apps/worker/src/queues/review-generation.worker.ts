@@ -44,7 +44,11 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       throw error;
     }
   },
-  { connection },
+  // 10 products in flight at once instead of the BullMQ default of 1. Kept moderate (not higher)
+  // because AI-enabled stores hit OpenRouter per review — this stacks with the random per-review
+  // model pick already spreading load across models, without concentrating too much load on any
+  // one free-tier model's rate limit.
+  { connection, concurrency: 10 },
 );
 
 reviewGenerationWorker.on("failed", (job, error) => {

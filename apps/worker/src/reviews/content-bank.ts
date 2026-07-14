@@ -202,6 +202,64 @@ export const USP_CLOSERS: Record<"5" | "4", Phrase[]> = {
   ],
 };
 
+/** Used when the reviewer's own gender doesn't match the product's detected audience (e.g. a
+ * male reviewer on a women's chain) — frames the purchase as a gift instead of personal use, via
+ * a {giftRecipient} placeholder (see `pickGiftRecipient` in @ai-shopify/shared). */
+export const GIFT_OPENERS: Record<RatingTier, Phrase[]> = {
+  "5": [
+    "I picked this up as a gift for my {giftRecipient} and it was a huge hit.",
+    "Got this for my {giftRecipient}, and it turned out to be perfect.",
+    "This was a gift for my {giftRecipient}, who absolutely loves it.",
+    "Bought this for my {giftRecipient} and honestly nailed it with this one.",
+  ],
+  "4": [
+    "Picked this up as a gift for my {giftRecipient}, who's been happy with it.",
+    "Got this for my {giftRecipient} and it's gone over well.",
+    "This was a gift for my {giftRecipient} — pretty solid choice overall.",
+  ],
+  "3": [
+    "Got this as a gift for my {giftRecipient} — mixed feelings from them, honestly.",
+    "Picked this up for my {giftRecipient}. It's fine, nothing special.",
+  ],
+  low: [
+    "Got this as a gift for my {giftRecipient}, and it didn't quite land.",
+    "Picked this up for my {giftRecipient}, who was a bit let down by it.",
+  ],
+};
+
+export const GIFT_DETAILS: Record<RatingTier, Phrase[]> = {
+  "5": [
+    "My {giftRecipient} says the {productType} is even better than expected.",
+    "The quality of this {productType} really impressed my {giftRecipient}.",
+    "My {giftRecipient} has been using this {productType} constantly since I gave it to them.",
+    "It's clear a lot of care went into this {productType} — my {giftRecipient} noticed right away.",
+  ],
+  "4": [
+    "My {giftRecipient} likes the {productType}, aside from a small learning curve.",
+    "The {productType} arrived quickly and matched what I expected for my {giftRecipient}.",
+    "My {giftRecipient} says this {productType} feels durable and well-made.",
+  ],
+  "3": [
+    "My {giftRecipient} says the {productType} works as described, nothing extra.",
+    "It's a fine {productType} for my {giftRecipient}, nothing that stood out either way.",
+  ],
+  low: [
+    "My {giftRecipient} said the {productType} felt less durable than expected.",
+    "The {productType} didn't quite match what my {giftRecipient} pictured from the listing.",
+  ],
+};
+
+export const GIFT_CLOSERS: Record<RatingTier, Phrase[]> = {
+  "5": [
+    "Already thinking about getting one for someone else too.",
+    "Definitely coming back here for future gifts.",
+    "Would absolutely buy this as a gift again.",
+  ],
+  "4": ["Happy I went with this as a gift.", "Would consider buying this as a gift again."],
+  "3": ["Might look elsewhere next time I need a gift like this.", "An okay gift option, nothing more."],
+  low: ["Probably won't buy this as a gift again.", "Would think twice before gifting this again."],
+};
+
 export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
   "5": [
     "Exceeded my expectations",

@@ -49,10 +49,14 @@ export type AiReviewParams = {
   };
   rating: number;
   length: ReviewLength;
+  /** Set when the reviewer's own gender doesn't match the product's detected audience (e.g. a
+   * male reviewer on a women's chain) — tells the model to frame this as a gift purchase instead
+   * of writing as if the reviewer personally uses/wears the product. */
+  giftRecipient?: string;
 };
 
 function buildPrompt(params: Omit<AiReviewParams, "apiKey">): string {
-  const { productTitle, productType, brand, reviewer, rating, length } = params;
+  const { productTitle, productType, brand, reviewer, rating, length, giftRecipient } = params;
 
   const brandContext = brand?.name
     ? `The store/brand is called "${brand.name}"${brand.category ? ` (a ${brand.category} brand)` : ""}.${
@@ -60,11 +64,16 @@ function buildPrompt(params: Omit<AiReviewParams, "apiKey">): string {
       }`
     : "";
 
+  const purchaseContext = giftRecipient
+    ? `The reviewer bought this as a GIFT for their ${giftRecipient} — do NOT write as if the reviewer personally uses/wears it themselves. Frame the review around the ${giftRecipient}'s reaction (e.g. "bought this for my ${giftRecipient}, and...").`
+    : "The reviewer bought this for themselves and uses/wears it personally.";
+
   return `You are role-playing as a real customer writing a short product review. Output nothing except the review itself, written as that customer would type it — no notes, no explanation, no restating these instructions.
 
 Reviewer persona: ${reviewer.name}, ${reviewer.gender === "MALE" ? "male" : "female"}, ${reviewer.ageGroup}, works as a ${reviewer.occupation}, from ${reviewer.country}.
 Product: "${productTitle}" (a ${productType}).
 ${brandContext}
+${purchaseContext}
 Star rating: ${rating}/5.
 Length: ${LENGTH_GUIDANCE[length]}.
 

@@ -1,5 +1,12 @@
 import { prisma } from "@ai-shopify/db";
-import { decryptSecret, type ReviewGenerationJobPayload, type ReviewLength } from "@ai-shopify/shared";
+import {
+  decryptSecret,
+  detectAudienceGender,
+  pickGiftRecipient,
+  pickWeightedLength,
+  type ReviewGenerationJobPayload,
+  type ReviewLength,
+} from "@ai-shopify/shared";
 import { assembleReview, type AssembledReview } from "./assemble-review.js";
 import { generateReviewWithAI } from "./ai-generate.js";
 import { hashReviewContent } from "./content-hash.js";
@@ -43,6 +50,8 @@ type ProduceReviewParams = {
   productTitle: string;
   excludeCombos: Set<string>;
   ai?: AiConfig;
+  /** Set when the reviewer's own gender doesn't match the product's detected audience. */
+  giftRecipient?: string;
 };
 
 /** Tries real AI generation first when configured; falls back to the phrase-bank assembler on any
@@ -59,6 +68,7 @@ async function produceReview(params: ProduceReviewParams): Promise<AssembledRevi
         reviewer,
         rating: assembleParams.rating,
         length: assembleParams.length,
+        giftRecipient: assembleParams.giftRecipient,
       });
       return { title, content, comboKey: `ai:${hashReviewContent(content)}` };
     } catch (error) {
@@ -70,7 +80,7 @@ async function produceReview(params: ProduceReviewParams): Promise<AssembledRevi
 }
 
 export async function generateReviewsForProduct(payload: ReviewGenerationJobPayload): Promise<void> {
-  const { productId, maleCount, femaleCount, length } = payload;
+  const { productId, maleCount, femaleCount, lengthMode, length, lengthWeights } = payload;
 
   const product = await prisma.product.findUniqueOrThrow({
     where: { id: productId },
@@ -107,10 +117,15 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     ...Array(femaleCount).fill("FEMALE" as const),
   ];
 
+  const audience = detectAudienceGender(product.title, effectiveProductType);
+
   for (const gender of genderQueue) {
     try {
       const reviewer = await getOrCreateReviewer(product.storeId, gender, usedReviewerIds);
       usedReviewerIds.add(reviewer.id);
+      const giftRecipient = audience !== "UNISEX" && audience !== gender ? pickGiftRecipient(gender) : undefined;
+      const reviewLength: ReviewLength =
+        lengthMode === "MIXED" && lengthWeights ? pickWeightedLength(lengthWeights) : length;
 
       const rating = randomRating();
       const reviewerPersona = {
@@ -125,11 +140,12 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
         productType: effectiveProductType,
         productTitle: product.title,
         rating,
-        length,
+        length: reviewLength,
         brand,
         reviewer: reviewerPersona,
         excludeCombos: usedCombos,
         ai,
+        giftRecipient,
       });
       let hash = hashReviewContent(produced.content);
       let status: "DRAFT" | "DUPLICATE_REGENERATED" = "DRAFT";
@@ -141,11 +157,12 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           productType: effectiveProductType,
           productTitle: product.title,
           rating,
-          length,
+          length: reviewLength,
           brand,
           reviewer: reviewerPersona,
           excludeCombos: usedCombos,
           ai,
+          giftRecipient,
         });
         hash = hashReviewContent(produced.content);
         retries++;

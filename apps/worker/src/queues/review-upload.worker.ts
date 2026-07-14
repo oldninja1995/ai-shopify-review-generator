@@ -8,7 +8,9 @@ export const reviewUploadWorker = new Worker<{ uploadJobId: string }>(
   async (job) => {
     await processUploadJob(job.data.uploadJobId);
   },
-  { connection },
+  // 5 uploads in flight at once instead of the BullMQ default of 1 — conservative since this
+  // hits Judge.me's live API directly and their rate limits for this endpoint aren't documented.
+  { connection, concurrency: 5 },
 );
 
 reviewUploadWorker.on("failed", (job, error) => {

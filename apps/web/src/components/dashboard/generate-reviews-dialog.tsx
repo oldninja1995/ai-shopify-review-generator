@@ -2,10 +2,11 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
+  DEFAULT_LENGTH_WEIGHTS,
   generateReviewsSchema,
   REVIEW_LENGTHS,
   type GenerateReviewsInput,
@@ -22,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { LengthWeightInputs } from "@/components/dashboard/length-weight-inputs";
 import { postJson } from "@/lib/api-client";
 
 const LENGTH_LABELS: Record<ReviewLength, string> = {
@@ -48,8 +50,18 @@ export function GenerateReviewsDialog({
 
   const form = useForm<GenerateReviewsInput>({
     resolver: zodResolver(generateReviewsSchema),
-    defaultValues: { productId: "", maleCount: 2, femaleCount: 2, productType: "", length: "MEDIUM" },
+    defaultValues: {
+      productId: "",
+      maleCount: 2,
+      femaleCount: 2,
+      productType: "",
+      lengthMode: "FIXED",
+      length: "MEDIUM",
+      lengthWeights: DEFAULT_LENGTH_WEIGHTS,
+    },
   });
+
+  const lengthMode = useWatch({ control: form.control, name: "lengthMode" });
 
   useEffect(() => {
     if (target) {
@@ -58,7 +70,9 @@ export function GenerateReviewsDialog({
         maleCount: 2,
         femaleCount: 2,
         productType: target.productType,
+        lengthMode: "FIXED",
         length: "MEDIUM",
+        lengthWeights: DEFAULT_LENGTH_WEIGHTS,
       });
     }
   }, [target, form]);
@@ -140,29 +154,63 @@ export function GenerateReviewsDialog({
 
             <FormField
               control={form.control}
-              name="length"
+              name="lengthMode"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Review length</FormLabel>
                   <FormControl>
                     <div className="flex gap-2">
-                      {REVIEW_LENGTHS.map((length) => (
-                        <Button
-                          key={length}
-                          type="button"
-                          size="sm"
-                          variant={field.value === length ? "default" : "outline"}
-                          onClick={() => field.onChange(length)}
-                        >
-                          {LENGTH_LABELS[length]}
-                        </Button>
-                      ))}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={field.value === "FIXED" ? "default" : "outline"}
+                        onClick={() => field.onChange("FIXED")}
+                      >
+                        One length
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={field.value === "MIXED" ? "default" : "outline"}
+                        onClick={() => field.onChange("MIXED")}
+                      >
+                        Mix of lengths
+                      </Button>
                     </div>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+
+            {lengthMode === "FIXED" ? (
+              <FormField
+                control={form.control}
+                name="length"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <div className="flex gap-2">
+                        {REVIEW_LENGTHS.map((length) => (
+                          <Button
+                            key={length}
+                            type="button"
+                            size="sm"
+                            variant={field.value === length ? "default" : "outline"}
+                            onClick={() => field.onChange(length)}
+                          >
+                            {LENGTH_LABELS[length]}
+                          </Button>
+                        ))}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : (
+              <LengthWeightInputs form={form} />
+            )}
 
             <DialogFooter>
               <Button type="submit" disabled={form.formState.isSubmitting}>

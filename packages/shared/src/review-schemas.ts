@@ -3,13 +3,44 @@ import { z } from "zod";
 export const REVIEW_LENGTHS = ["SHORT", "MEDIUM", "DETAILED"] as const;
 export type ReviewLength = (typeof REVIEW_LENGTHS)[number];
 
+export const LENGTH_MODES = ["FIXED", "MIXED"] as const;
+export type LengthMode = (typeof LENGTH_MODES)[number];
+
+/** Relative weights (need not sum to 100 — normalized at pick time), one per length tier. */
+export type LengthWeights = Record<ReviewLength, number>;
+
+export const DEFAULT_LENGTH_WEIGHTS: LengthWeights = { SHORT: 30, MEDIUM: 50, DETAILED: 20 };
+
+const lengthWeightsSchema = z.object({
+  SHORT: z.number().min(0),
+  MEDIUM: z.number().min(0),
+  DETAILED: z.number().min(0),
+});
+
+/** Picks a single review's length from a weighted mix instead of one fixed value for the whole
+ * batch — real customers don't all write the same length review, so a uniform `length` across a
+ * bulk-generated batch reads as unnaturally consistent. Falls back to MEDIUM if all weights are 0. */
+export function pickWeightedLength(weights: LengthWeights): ReviewLength {
+  const total = REVIEW_LENGTHS.reduce((sum, tier) => sum + Math.max(0, weights[tier] ?? 0), 0);
+  if (total <= 0) return "MEDIUM";
+  let roll = Math.random() * total;
+  for (const tier of REVIEW_LENGTHS) {
+    const weight = Math.max(0, weights[tier] ?? 0);
+    if (roll < weight) return tier;
+    roll -= weight;
+  }
+  return "MEDIUM";
+}
+
 export const generateReviewsSchema = z
   .object({
     productId: z.string().min(1, "productId is required"),
     maleCount: z.number().int().min(0).max(110),
     femaleCount: z.number().int().min(0).max(110),
     productType: z.string().trim().max(80).optional(),
+    lengthMode: z.enum(LENGTH_MODES).default("FIXED"),
     length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
+    lengthWeights: lengthWeightsSchema.optional(),
   })
   .refine((value) => value.maleCount + value.femaleCount > 0, {
     message: "Request at least 1 review",
@@ -18,7 +49,14 @@ export const generateReviewsSchema = z
   .refine((value) => value.maleCount + value.femaleCount <= 110, {
     message: "Request at most 110 reviews at a time",
     path: ["maleCount"],
-  });
+  })
+  .refine(
+    (value) =>
+      value.lengthMode !== "MIXED" ||
+      (value.lengthWeights &&
+        value.lengthWeights.SHORT + value.lengthWeights.MEDIUM + value.lengthWeights.DETAILED > 0),
+    { message: "At least one length weight must be greater than 0", path: ["lengthWeights"] },
+  );
 export type GenerateReviewsInput = z.infer<typeof generateReviewsSchema>;
 
 export type ReviewGenerationJobPayload = {
@@ -26,7 +64,9 @@ export type ReviewGenerationJobPayload = {
   maleCount: number;
   femaleCount: number;
   productType?: string;
+  lengthMode: LengthMode;
   length: ReviewLength;
+  lengthWeights?: LengthWeights;
   bulkJobId?: string;
 };
 
@@ -45,7 +85,9 @@ export const bulkGenerateReviewsSchema = z
     femaleCount: z.number().int().min(0).max(110).optional(),
     minPerProduct: z.number().int().min(1).max(110).optional(),
     maxPerProduct: z.number().int().min(1).max(110).optional(),
+    lengthMode: z.enum(LENGTH_MODES).default("FIXED"),
     length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
+    lengthWeights: lengthWeightsSchema.optional(),
   })
   .refine(
     (value) => value.countMode !== "FIXED" || (value.maleCount ?? 0) + (value.femaleCount ?? 0) > 0,
@@ -62,7 +104,14 @@ export const bulkGenerateReviewsSchema = z
   .refine((value) => value.scope === "STORE" || value.targetIds.length > 0, {
     message: "Select at least one target",
     path: ["targetIds"],
-  });
+  })
+  .refine(
+    (value) =>
+      value.lengthMode !== "MIXED" ||
+      (value.lengthWeights &&
+        value.lengthWeights.SHORT + value.lengthWeights.MEDIUM + value.lengthWeights.DETAILED > 0),
+    { message: "At least one length weight must be greater than 0", path: ["lengthWeights"] },
+  );
 export type BulkGenerateReviewsInput = z.infer<typeof bulkGenerateReviewsSchema>;
 
 export const updateReviewSchema = z.object({
