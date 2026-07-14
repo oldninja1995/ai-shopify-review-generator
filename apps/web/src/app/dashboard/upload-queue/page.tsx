@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { UploadQueueTable, type UploadQueueRow } from "@/components/dashboard/upload-queue-table";
+import { UploadQueueProgress } from "@/components/dashboard/upload-queue-progress";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
@@ -45,7 +46,7 @@ export default async function UploadQueuePage({
 
   const where = { review: { product: { storeId: store.id } } };
 
-  const [totalCount, rows] = await Promise.all([
+  const [totalCount, rows, statusCounts] = await Promise.all([
     prisma.uploadJob.count({ where }),
     prisma.uploadJob.findMany({
       where,
@@ -54,7 +55,17 @@ export default async function UploadQueuePage({
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
+    prisma.uploadJob.groupBy({ by: ["status"], where, _count: { _all: true } }),
   ]);
+
+  const countByStatus = Object.fromEntries(statusCounts.map((row) => [row.status, row._count._all]));
+  const uploadSummary = {
+    total: totalCount,
+    succeeded: countByStatus.SUCCEEDED ?? 0,
+    failed: countByStatus.FAILED ?? 0,
+    pending: countByStatus.PENDING ?? 0,
+    processing: countByStatus.PROCESSING ?? 0,
+  };
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -73,6 +84,8 @@ export default async function UploadQueuePage({
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Upload Queue</h1>
+
+      <UploadQueueProgress summary={uploadSummary} />
 
       <Card>
         <CardContent className="p-0">
