@@ -16,6 +16,25 @@ function pick<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)] as T;
 }
 
+/** Casual lead-ins occasionally prepended to the opener sentence — real typed reviews don't
+ * always start "fresh" with a clean declarative sentence the way every phrase-bank entry does on
+ * its own; this breaks that pattern up without needing a whole extra hand-written sentence pool. */
+const INTERJECTIONS = [
+  "Honestly, ",
+  "Not gonna lie, ",
+  "Ngl, ",
+  "Okay so ",
+  "So far, ",
+  "Real talk, ",
+  "Gotta say, ",
+];
+
+function maybeAddInterjection(sentence: string): string {
+  if (Math.random() >= 0.22) return sentence;
+  const interjection = pick(INTERJECTIONS);
+  return interjection + (sentence.charAt(0).toLowerCase() + sentence.slice(1));
+}
+
 function fillPlaceholders(
   phrase: string,
   vars: {
@@ -79,6 +98,7 @@ export function assembleReview(params: AssembleReviewParams): AssembledReview {
   let useBrandCloser = false;
   let useUspCloser = false;
   let closerIdx = 0;
+  let includeCloser = true;
   let comboKey = "";
 
   function pickCloserPool(): string[] {
@@ -100,9 +120,13 @@ export function assembleReview(params: AssembleReviewParams): AssembledReview {
     useBrandCloser = !useUspCloser && canUseBrandCloser && Math.random() < 0.4;
     const closerPool = pickCloserPool();
     closerIdx = Math.floor(Math.random() * closerPool.length);
+    // Real short reviews often just trail off without a tidy wrap-up sentence — a USP/brand
+    // closer is worth keeping (that's the whole point of picking one), but a plain generic closer
+    // is skippable, more so for SHORT reviews than longer ones.
+    includeCloser = useUspCloser || useBrandCloser || Math.random() >= (length === "SHORT" ? 0.45 : 0.2);
 
-    const closerTag = useUspCloser ? "u" : useBrandCloser ? "b" : "c";
-    comboKey = `${isGift ? "gift" : "self"}:${tier}:${length}:${openerIdx}:${detailIdxs.slice().sort().join(",")}:${closerTag}${closerIdx}`;
+    const closerTag = !includeCloser ? "n" : useUspCloser ? "u" : useBrandCloser ? "b" : "c";
+    comboKey = `${isGift ? "gift" : "self"}:${tier}:${length}:${openerIdx}:${detailIdxs.slice().sort().join(",")}:${closerTag}${includeCloser ? closerIdx : ""}`;
     if (!excludeCombos.has(comboKey)) break;
   }
 
@@ -114,12 +138,12 @@ export function assembleReview(params: AssembleReviewParams): AssembledReview {
     giftRecipient,
   };
 
-  const opener = fillPlaceholders(openers[openerIdx] as string, vars);
+  const opener = maybeAddInterjection(fillPlaceholders(openers[openerIdx] as string, vars));
   const detailSentences = detailIdxs.map((idx) => fillPlaceholders(details[idx] as string, vars));
   const closerPool = pickCloserPool();
-  const closer = fillPlaceholders(closerPool[closerIdx] as string, vars);
+  const closer = includeCloser ? fillPlaceholders(closerPool[closerIdx] as string, vars) : undefined;
 
-  const content = [opener, ...detailSentences, closer].join(" ");
+  const content = [opener, ...detailSentences, closer].filter(Boolean).join(" ");
   const title = pick(TITLE_PHRASES[tier]);
 
   return { title, content, comboKey };

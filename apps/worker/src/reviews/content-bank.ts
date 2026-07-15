@@ -32,6 +32,16 @@ export const OPENERS: Record<RatingTier, Phrase[]> = {
     "I almost didn't buy this, and now I regret waiting so long.",
     "This is one of those rare products that actually lives up to the hype.",
     "I'm already thinking about getting a second one.",
+    "Didn't think I'd care this much about a single purchase.",
+    "This showed up and immediately made my week better.",
+    "My expectations were low and this still managed to surprise me.",
+    "I keep picking this over everything else I own now.",
+    "This one's a keeper, no question.",
+    "I wasn't planning to write a review but this deserves one.",
+    "This is the kind of purchase that actually feels worth talking about.",
+    "I've had this for a bit now and it just keeps impressing me.",
+    "This is going to be hard to top.",
+    "My whole family noticed this the second it arrived.",
   ],
   "4": [
     "Really happy with this purchase overall.",
@@ -49,6 +59,14 @@ export const OPENERS: Record<RatingTier, Phrase[]> = {
     "This has quickly become something I reach for often.",
     "Good quality and arrived exactly as described.",
     "Nice pickup for the price.",
+    "This is a keeper for the price point.",
+    "Turned out better than I was expecting.",
+    "This one's grown on me the more I use it.",
+    "A dependable little purchase, no complaints.",
+    "This fits the bill well for what I needed.",
+    "Been reaching for this one a lot lately.",
+    "This did exactly what I hoped it would.",
+    "Decent find, would keep an eye on this shop again.",
   ],
 };
 
@@ -71,6 +89,13 @@ export const DETAILS: Record<RatingTier, Phrase[]> = {
     "I keep noticing new things I like about this {productType} the more I use it.",
     "It's clear this brand knows {brandCategory} — this one really shows that.",
     "Compared to other {brandCategory} products I've tried, this one is a standout.",
+    "Everyone who's seen this {productType} has asked where I got it.",
+    "This {productType} feels like it was made to actually last.",
+    "I reach for this {productType} without even thinking about it now.",
+    "The finish on this {productType} is genuinely impressive.",
+    "This {productType} photographs well but looks even better in real life.",
+    "I didn't expect to feel this strongly about a {productType}, but here we are.",
+    "This {productType} just feels right the moment you pick it up.",
   ],
   "4": [
     "The {productType} works well and does what it's supposed to.",
@@ -86,6 +111,11 @@ export const DETAILS: Record<RatingTier, Phrase[]> = {
     "It looks great and functions just as well.",
     "The {productType} feels like it'll last a good while.",
     "Solid entry in the {brandCategory} space, worth considering.",
+    "This {productType} does exactly what it says on the box.",
+    "Comfortable enough that I forget I have it on/using it most days.",
+    "This {productType} matches the pictures pretty closely.",
+    "The {productType} settled into my routine faster than I expected.",
+    "This {productType} feels like a fair trade for the price.",
   ],
 };
 
@@ -99,6 +129,10 @@ export const CLOSERS: Record<RatingTier, Phrase[]> = {
     "Worth every penny.",
     "This is going straight into my regular rotation.",
     "I'll be back for more from this shop.",
+    "Zero regrets on this one.",
+    "This one's a no-brainer.",
+    "Already eyeing my next order.",
+    "Telling everyone I know about this now.",
   ],
   "4": [
     "Would recommend this one.",
@@ -107,6 +141,9 @@ export const CLOSERS: Record<RatingTier, Phrase[]> = {
     "A solid choice overall.",
     "Glad I gave this a try.",
     "Worth it for the price.",
+    "Good pickup overall.",
+    "Would keep this shop on my list.",
+    "Satisfied with how this turned out.",
   ],
 };
 
@@ -150,11 +187,14 @@ export const GIFT_OPENERS: Record<RatingTier, Phrase[]> = {
     "Got this for my {giftRecipient}, and it turned out to be perfect.",
     "This was a gift for my {giftRecipient}, who absolutely loves it.",
     "Bought this for my {giftRecipient} and honestly nailed it with this one.",
+    "Surprised my {giftRecipient} with this and their reaction made it worth it.",
+    "Picked this out for my {giftRecipient} and I think I picked well.",
   ],
   "4": [
     "Picked this up as a gift for my {giftRecipient}, who's been happy with it.",
     "Got this for my {giftRecipient} and it's gone over well.",
     "This was a gift for my {giftRecipient} — pretty solid choice overall.",
+    "Got this for my {giftRecipient} and they seem genuinely pleased with it.",
   ],
 };
 
@@ -164,11 +204,13 @@ export const GIFT_DETAILS: Record<RatingTier, Phrase[]> = {
     "The quality of this {productType} really impressed my {giftRecipient}.",
     "My {giftRecipient} has been using this {productType} constantly since I gave it to them.",
     "It's clear a lot of care went into this {productType} — my {giftRecipient} noticed right away.",
+    "My {giftRecipient} hasn't stopped talking about this {productType} since I gave it to them.",
   ],
   "4": [
     "My {giftRecipient} really likes the {productType}.",
     "The {productType} arrived quickly and matched what I expected for my {giftRecipient}.",
     "My {giftRecipient} says this {productType} feels durable and well-made.",
+    "My {giftRecipient} seemed genuinely happy opening this {productType}.",
   ],
 };
 
@@ -177,8 +219,13 @@ export const GIFT_CLOSERS: Record<RatingTier, Phrase[]> = {
     "Already thinking about getting one for someone else too.",
     "Definitely coming back here for future gifts.",
     "Would absolutely buy this as a gift again.",
+    "Nailed the gift search this time.",
   ],
-  "4": ["Happy I went with this as a gift.", "Would consider buying this as a gift again."],
+  "4": [
+    "Happy I went with this as a gift.",
+    "Would consider buying this as a gift again.",
+    "Good gift pick, all things considered.",
+  ],
 };
 
 export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
@@ -190,6 +237,10 @@ export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
     "Worth every penny",
     "Exactly what I needed",
     "Impressed with the quality",
+    "Didn't expect to love this so much",
+    "A genuinely great find",
+    "This one's a keeper",
+    "Everything I wanted and more",
   ],
   "4": [
     "Really happy with this",
@@ -198,6 +249,9 @@ export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
     "Pleasantly surprised",
     "Would recommend",
     "Great addition to my routine",
+    "Happy with this purchase",
+    "Does what it should",
+    "A dependable pick",
   ],
 };
 
