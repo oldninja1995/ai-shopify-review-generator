@@ -8,7 +8,6 @@ import { FormLabel } from "@/components/ui/form";
 const SENTIMENT_LABELS: Record<RatingSentiment, string> = {
   POSITIVE: "Positive (4-5★)",
   NEUTRAL: "Neutral (3★)",
-  NEGATIVE: "Negative (1-2★)",
 };
 
 type WithRatingWeights = { ratingWeights?: Record<RatingSentiment, number> };
@@ -31,7 +30,7 @@ export function RatingWeightInputs<T extends FieldValues & WithRatingWeights>({
   return (
     <div className="space-y-2">
       <FormLabel>Rating mix (relative weights)</FormLabel>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {RATING_SENTIMENTS.map((tier) => (
           <div key={tier} className="space-y-1">
             <label className="text-xs font-normal text-muted-foreground">{SENTIMENT_LABELS[tier]}</label>

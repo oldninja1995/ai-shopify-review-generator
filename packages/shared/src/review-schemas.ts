@@ -35,26 +35,26 @@ export function pickWeightedLength(weights: LengthWeights): ReviewLength {
 export const RATING_MODES = ["DEFAULT", "MIXED"] as const;
 export type RatingMode = (typeof RATING_MODES)[number];
 
-export const RATING_SENTIMENTS = ["POSITIVE", "NEUTRAL", "NEGATIVE"] as const;
+// Negative (1-2 star) reviews are never auto-generated — this app exists to generate reviews
+// that make a store look good, and a negative review works against that purpose.
+export const RATING_SENTIMENTS = ["POSITIVE", "NEUTRAL"] as const;
 export type RatingSentiment = (typeof RATING_SENTIMENTS)[number];
 
 /** Relative weights (need not sum to 100 — normalized at pick time), one per sentiment bucket. */
 export type RatingWeights = Record<RatingSentiment, number>;
 
-/** Matches this app's original hardcoded distribution (55% 5-star, 25% 4-star, 12% 3-star, 5%
- * 2-star, 3% 1-star) collapsed into sentiment buckets, so DEFAULT mode is unchanged behavior. */
-export const DEFAULT_RATING_WEIGHTS: RatingWeights = { POSITIVE: 80, NEUTRAL: 12, NEGATIVE: 8 };
+/** Matches this app's original hardcoded distribution (55% 5-star, 25% 4-star, 12% 3-star)
+ * collapsed into sentiment buckets, so DEFAULT mode is unchanged behavior for positive/neutral. */
+export const DEFAULT_RATING_WEIGHTS: RatingWeights = { POSITIVE: 80, NEUTRAL: 12 };
 
 const ratingWeightsSchema = z.object({
   POSITIVE: z.number().min(0),
   NEUTRAL: z.number().min(0),
-  NEGATIVE: z.number().min(0),
 });
 
 /** Picks a star rating from a weighted sentiment mix. Within POSITIVE, splits 5-vs-4 star at the
- * same ~69/31 ratio as the original hardcoded distribution (55/(55+25)); within NEGATIVE, splits
- * 2-vs-1 star at ~62/38 (5/(5+3)). NEUTRAL is always 3 stars. Falls back to a POSITIVE 5-star
- * review if all weights are 0. */
+ * same ~69/31 ratio as the original hardcoded distribution (55/(55+25)). NEUTRAL is always 3
+ * stars. Falls back to a POSITIVE 5-star review if all weights are 0. */
 export function pickWeightedRating(weights: RatingWeights): number {
   const total = RATING_SENTIMENTS.reduce((sum, tier) => sum + Math.max(0, weights[tier] ?? 0), 0);
   let sentiment: RatingSentiment = "POSITIVE";
@@ -70,8 +70,7 @@ export function pickWeightedRating(weights: RatingWeights): number {
     }
   }
   if (sentiment === "NEUTRAL") return 3;
-  if (sentiment === "POSITIVE") return Math.random() < 0.6875 ? 5 : 4;
-  return Math.random() < 0.625 ? 2 : 1;
+  return Math.random() < 0.6875 ? 5 : 4;
 }
 
 export const generateReviewsSchema = z
@@ -105,7 +104,7 @@ export const generateReviewsSchema = z
     (value) =>
       value.ratingMode !== "MIXED" ||
       (value.ratingWeights &&
-        value.ratingWeights.POSITIVE + value.ratingWeights.NEUTRAL + value.ratingWeights.NEGATIVE > 0),
+        value.ratingWeights.POSITIVE + value.ratingWeights.NEUTRAL > 0),
     { message: "At least one rating weight must be greater than 0", path: ["ratingWeights"] },
   );
 export type GenerateReviewsInput = z.infer<typeof generateReviewsSchema>;
@@ -171,7 +170,7 @@ export const bulkGenerateReviewsSchema = z
     (value) =>
       value.ratingMode !== "MIXED" ||
       (value.ratingWeights &&
-        value.ratingWeights.POSITIVE + value.ratingWeights.NEUTRAL + value.ratingWeights.NEGATIVE > 0),
+        value.ratingWeights.POSITIVE + value.ratingWeights.NEUTRAL > 0),
     { message: "At least one rating weight must be greater than 0", path: ["ratingWeights"] },
   );
 export type BulkGenerateReviewsInput = z.infer<typeof bulkGenerateReviewsSchema>;

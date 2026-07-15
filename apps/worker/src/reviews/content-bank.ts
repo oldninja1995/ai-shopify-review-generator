@@ -4,13 +4,16 @@
  * generation has no external dependency and no per-request cost.
  */
 
-export type RatingTier = "5" | "4" | "3" | "low";
+export type RatingTier = "5" | "4" | "3";
 
+// Ratings below 3 stars are never auto-generated (see pickWeightedRating in
+// packages/shared/src/review-schemas.ts, which only offers POSITIVE/NEUTRAL sentiment) — a
+// manually-edited review can still be set to 1-2 stars via the edit dialog, so this stays total
+// rather than throwing, collapsing into the nearest tier's phrasing.
 export function ratingToTier(rating: number): RatingTier {
   if (rating >= 5) return "5";
   if (rating === 4) return "4";
-  if (rating === 3) return "3";
-  return "low";
+  return "3";
 }
 
 type Phrase = string; // may contain {productType}, {brandCategory}, {brandName} placeholders
@@ -64,18 +67,6 @@ export const OPENERS: Record<RatingTier, Phrase[]> = {
     "It's a middle-of-the-road product overall.",
     "Not bad, but I probably wouldn't buy it again.",
   ],
-  low: [
-    "This didn't quite work out for me.",
-    "I had higher hopes for this one.",
-    "This fell short of what I expected.",
-    "I'm a bit disappointed, honestly.",
-    "This wasn't the right fit for my needs.",
-    "I expected more for the price.",
-    "This didn't hold up the way I hoped.",
-    "Wanted to like this more than I did.",
-    "This just didn't click for me.",
-    "I probably won't be repurchasing this one.",
-  ],
 };
 
 export const DETAILS: Record<RatingTier, Phrase[]> = {
@@ -125,16 +116,6 @@ export const DETAILS: Record<RatingTier, Phrase[]> = {
     "It does what it says, just without much flair.",
     "I'd call this {productType} a safe, unexciting choice.",
   ],
-  low: [
-    "The {productType} felt less durable than I expected.",
-    "It didn't quite match what I pictured from the listing.",
-    "This {productType} required more effort to get used to than I'd like.",
-    "I noticed some quality issues with this {productType} early on.",
-    "It feels a bit flimsy compared to the price.",
-    "This {productType} didn't perform as consistently as I hoped.",
-    "I ran into a few small issues with this {productType}.",
-    "It works, but not as smoothly as I expected.",
-  ],
 };
 
 export const CLOSERS: Record<RatingTier, Phrase[]> = {
@@ -162,12 +143,6 @@ export const CLOSERS: Record<RatingTier, Phrase[]> = {
     "An okay option if you're not expecting much.",
     "Neutral on whether I'd repurchase.",
     "Serviceable, but not memorable.",
-  ],
-  low: [
-    "Probably won't repurchase.",
-    "Would think twice before buying again.",
-    "Hoping for a better experience with something else next time.",
-    "Wouldn't rule it out, but not my first choice.",
   ],
 };
 
@@ -221,10 +196,6 @@ export const GIFT_OPENERS: Record<RatingTier, Phrase[]> = {
     "Got this as a gift for my {giftRecipient} — mixed feelings from them, honestly.",
     "Picked this up for my {giftRecipient}. It's fine, nothing special.",
   ],
-  low: [
-    "Got this as a gift for my {giftRecipient}, and it didn't quite land.",
-    "Picked this up for my {giftRecipient}, who was a bit let down by it.",
-  ],
 };
 
 export const GIFT_DETAILS: Record<RatingTier, Phrase[]> = {
@@ -243,10 +214,6 @@ export const GIFT_DETAILS: Record<RatingTier, Phrase[]> = {
     "My {giftRecipient} says the {productType} works as described, nothing extra.",
     "It's a fine {productType} for my {giftRecipient}, nothing that stood out either way.",
   ],
-  low: [
-    "My {giftRecipient} said the {productType} felt less durable than expected.",
-    "The {productType} didn't quite match what my {giftRecipient} pictured from the listing.",
-  ],
 };
 
 export const GIFT_CLOSERS: Record<RatingTier, Phrase[]> = {
@@ -257,7 +224,6 @@ export const GIFT_CLOSERS: Record<RatingTier, Phrase[]> = {
   ],
   "4": ["Happy I went with this as a gift.", "Would consider buying this as a gift again."],
   "3": ["Might look elsewhere next time I need a gift like this.", "An okay gift option, nothing more."],
-  low: ["Probably won't buy this as a gift again.", "Would think twice before gifting this again."],
 };
 
 export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
@@ -284,13 +250,6 @@ export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
     "Average, but functional",
     "Mixed feelings",
     "Fair for the price",
-  ],
-  low: [
-    "Didn't quite work for me",
-    "Expected more",
-    "A bit disappointing",
-    "Not the right fit",
-    "Room for improvement",
   ],
 };
 
