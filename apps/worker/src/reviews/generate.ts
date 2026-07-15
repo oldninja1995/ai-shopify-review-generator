@@ -10,6 +10,7 @@ import {
 } from "@ai-shopify/shared";
 import { assembleReview, type AssembledReview } from "./assemble-review.js";
 import { generateReviewWithAI } from "./ai-generate.js";
+import { analyzeProductAudienceFromImage } from "./vision-audience.js";
 import { hashReviewContent } from "./content-hash.js";
 import { getOrCreateReviewer } from "./reviewer-pool.js";
 import { env } from "../env.js";
@@ -75,7 +76,10 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
 
   const product = await prisma.product.findUniqueOrThrow({
     where: { id: productId },
-    include: { store: { include: { brandSettings: true, aiSettings: true } } },
+    include: {
+      store: { include: { brandSettings: true, aiSettings: true } },
+      images: { orderBy: { position: "asc" }, take: 1 },
+    },
   });
   const effectiveProductType = payload.productType?.trim() || product.productType;
   const brand = product.store.brandSettings
@@ -108,7 +112,34 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     ...Array(femaleCount).fill("FEMALE" as const),
   ];
 
-  const audience = detectAudienceGender(product.title, effectiveProductType);
+  // Vision-based audience detection catches products a text-only heuristic can't (e.g. a plain
+  // "Chain" with no gendered word in the name, but styled in a clearly masculine/feminine way).
+  // Cached on the product after the first successful analysis (detectedAudience) so this only
+  // costs one API call ever per product, not one per generation request. Only persisted on a
+  // definitive vision result — if vision isn't attempted (no AI configured, no image) or fails,
+  // nothing is cached, so a later run can still retry it once AI/images are available.
+  let audience = product.detectedAudience ?? detectAudienceGender(product.title, effectiveProductType);
+  const primaryImage = product.images[0];
+  if (!product.detectedAudience && ai && primaryImage) {
+    try {
+      const visionAudience = await analyzeProductAudienceFromImage(ai.apiKey, primaryImage.url);
+      if (visionAudience) {
+        audience = visionAudience;
+        await prisma.$transaction([
+          prisma.product.update({
+            where: { id: productId },
+            data: { detectedAudience: visionAudience, lastAnalyzedAt: new Date() },
+          }),
+          prisma.productImage.update({
+            where: { id: primaryImage.id },
+            data: { analysis: { audience: visionAudience }, analyzedAt: new Date() },
+          }),
+        ]);
+      }
+    } catch (error) {
+      console.error(`[review-generation] vision audience analysis failed for product ${productId}:`, error);
+    }
+  }
 
   // Phase 1: reserve a reviewer per slot sequentially — this must stay sequential (not
   // parallelized with phase 2) since usedReviewerIds is mutated after each pick, and two
