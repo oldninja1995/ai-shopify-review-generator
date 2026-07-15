@@ -55,23 +55,35 @@ export async function POST() {
   // instead of N.
   const reviewIds = eligibleReviews.map((r) => r.id);
   const batchStart = new Date();
-  await prisma.uploadJob.createMany({
-    data: reviewIds.map((reviewId) => ({ reviewId, providerConfigId: providerConfig.id })),
-  });
 
+  // Postgres caps a single prepared statement at 32767 bind variables — both the createMany
+  // (one placeholder set per row) and a later `reviewId: { in: reviewIds }` lookup can blow past
+  // that once a store has 30k+ eligible reviews in one go, so every step here is chunked.
+  const CHUNK_SIZE = 3000;
+  for (let i = 0; i < reviewIds.length; i += CHUNK_SIZE) {
+    const chunk = reviewIds.slice(i, i + CHUNK_SIZE);
+    await prisma.uploadJob.createMany({
+      data: chunk.map((reviewId) => ({ reviewId, providerConfigId: providerConfig.id })),
+    });
+  }
+
+  // Identified by providerConfigId + createdAt window instead of `reviewId: { in: reviewIds } }`
+  // — the latter re-introduces the same bind-variable ceiling this function is chunking around.
   const createdJobs = await prisma.uploadJob.findMany({
-    where: { reviewId: { in: reviewIds }, providerConfigId: providerConfig.id, createdAt: { gte: batchStart } },
+    where: { providerConfigId: providerConfig.id, createdAt: { gte: batchStart } },
     select: { id: true },
   });
 
-  await prisma.generatedReview.updateMany({
-    where: { id: { in: reviewIds } },
-    data: { status: "QUEUED" },
-  });
+  for (let i = 0; i < reviewIds.length; i += CHUNK_SIZE) {
+    const chunk = reviewIds.slice(i, i + CHUNK_SIZE);
+    await prisma.generatedReview.updateMany({
+      where: { id: { in: chunk } },
+      data: { status: "QUEUED" },
+    });
+  }
 
-  const ENQUEUE_CHUNK_SIZE = 5000;
-  for (let i = 0; i < createdJobs.length; i += ENQUEUE_CHUNK_SIZE) {
-    const chunk = createdJobs.slice(i, i + ENQUEUE_CHUNK_SIZE);
+  for (let i = 0; i < createdJobs.length; i += CHUNK_SIZE) {
+    const chunk = createdJobs.slice(i, i + CHUNK_SIZE);
     await reviewUploadQueue.addBulk(chunk.map((job) => ({ name: "upload", data: { uploadJobId: job.id } })));
   }
 
