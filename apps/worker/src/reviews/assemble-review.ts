@@ -32,7 +32,12 @@ const INTERJECTIONS = [
 function maybeAddInterjection(sentence: string): string {
   if (Math.random() >= 0.22) return sentence;
   const interjection = pick(INTERJECTIONS);
-  return interjection + (sentence.charAt(0).toLowerCase() + sentence.slice(1));
+  // The pronoun "I" (and its contractions — I've, I'm, I'll, I'd) is always capitalized in
+  // English regardless of position, unlike an ordinary sentence-initial word — lowercasing it
+  // reads as a typo rather than casual style, so leave those sentences' capitalization alone.
+  const startsWithCapitalI = /^I(['\s]|$)/.test(sentence);
+  const lowered = startsWithCapitalI ? sentence : sentence.charAt(0).toLowerCase() + sentence.slice(1);
+  return interjection + lowered;
 }
 
 function fillPlaceholders(
