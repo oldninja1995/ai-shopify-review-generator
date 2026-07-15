@@ -26,10 +26,38 @@ function looksLikeMetaCommentary(text: string): boolean {
   return META_COMMENTARY_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+/** Small/free models sometimes ignore the prompt's "entirely positive, no caveats" instruction —
+ * catches the concessive/critique phrasing patterns real reviews use for a flaw ("though the X
+ * felt a bit small", "aside from...", "only complaint is..."). Deliberately a curated list of
+ * fairly specific phrases rather than broad words like "but", to avoid rejecting genuinely
+ * positive reviews that happen to contain them. */
+const NEGATIVE_LANGUAGE_PATTERNS = [
+  /\bthough\b/i,
+  /\baside from\b/i,
+  /\bexcept for\b/i,
+  /\bhowever\b/i,
+  /\bdownside\b/i,
+  /\bwish (it|this|the)\b/i,
+  /\bcould be better\b/i,
+  /\bdisappoint/i,
+  /\bflaw/i,
+  /\blearning curve\b/i,
+  /\bnot perfect\b/i,
+  /\bonly (issue|complaint|downside|problem|gripe)\b/i,
+  /\ba (bit|little) (small|big|tight|loose|flimsy|cheap|thin)\b/i,
+  /\bnitpick/i,
+  /\bcaveat/i,
+];
+
+function containsNegativeLanguage(text: string): boolean {
+  return NEGATIVE_LANGUAGE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 /** Catches leftover template syntax (angle-bracket placeholders) or fragments of unparseable
  * JSON — signs the model didn't actually produce a finished, fillable-in review. */
 function looksUnusable(text: string): boolean {
   if (looksLikeMetaCommentary(text)) return true;
+  if (containsNegativeLanguage(text)) return true;
   if (/<your\s/i.test(text)) return true;
   if (/"title"\s*:|"content"\s*:/.test(text)) return true;
   return false;
@@ -55,6 +83,53 @@ export type AiReviewParams = {
   giftRecipient?: string;
 };
 
+/** Injected per call to push each generation toward a different voice/angle — without this,
+ * independent model calls (no shared memory across reviews) tend to converge on the same safe,
+ * generic "I bought this and love it, [brand name], [occasion]" shape every time, which reads as
+ * repetitive even when the exact wording differs. Randomly hints a buyer mindset and what part of
+ * the purchase to focus on, without dictating any actual sentence. */
+const BUYER_PERSONAS = [
+  "an excited buyer who's thrilled and a bit gushing about it",
+  "a low-key, matter-of-fact buyer who keeps it short and understated",
+  "a repeat customer who's ordered from this shop before",
+  "someone buying for a specific event or occasion coming up",
+  "someone who bought this as a gift for a family member",
+  "a budget-conscious buyer who cares mostly about value for the price",
+  "someone who was a bit hesitant or skeptical before ordering, now pleasantly surprised",
+  "someone who prefers this over similar things they've bought before",
+  "someone focused mainly on how it looks/feels day-to-day",
+  "someone who mentions the delivery/unboxing experience",
+];
+
+const FOCUS_ANGLES = [
+  "first impressions on opening it",
+  "how it looks or fits day-to-day",
+  "wearing/using it for a specific occasion",
+  "a compliment someone else gave them about it",
+  "comparing it to something else they've owned",
+  "how it matches their existing style",
+  "just a quick, general reaction — nothing detailed",
+];
+
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)] as T;
+}
+
+/** Generic phrases that show up constantly in AI-written marketing-flavored review text — banning
+ * them by name pushes the model toward more specific, varied language instead of falling back to
+ * the same handful of safe stock phrases across every review. */
+const BANNED_PHRASES = [
+  "absolutely loved",
+  "highly recommend",
+  "best product ever",
+  "value for money",
+  "exceeded my expectations",
+  "exceeded expectations",
+  "worth every penny",
+  "five stars",
+  "nailed it",
+];
+
 function buildPrompt(params: Omit<AiReviewParams, "apiKey">): string {
   const { productTitle, productType, brand, reviewer, rating, length, giftRecipient } = params;
 
@@ -74,14 +149,17 @@ function buildPrompt(params: Omit<AiReviewParams, "apiKey">): string {
 
   return `You are role-playing as a real customer writing a short product review. Output nothing except the review itself, written as that customer would type it — no notes, no explanation, no restating these instructions.
 
-Reviewer persona: ${reviewer.name}, ${reviewer.gender === "MALE" ? "male" : "female"}, ${reviewer.ageGroup}, works as a ${reviewer.occupation}, from ${reviewer.country}.
+Reviewer persona: ${reviewer.name}, ${reviewer.gender === "MALE" ? "male" : "female"}, ${reviewer.ageGroup}, works as a ${reviewer.occupation}, from ${reviewer.country}. Write as ${pickRandom(BUYER_PERSONAS)}.
 Product: "${productTitle}" (a ${productType}).
 ${brandContext}
 ${purchaseContext}
 Star rating: ${rating}/5.
 Length: ${LENGTH_GUIDANCE[length]}.
+If it fits naturally, focus mainly on: ${pickRandom(FOCUS_ANGLES)} — but don't force it if it doesn't suit this product.
 
-Write in first person, casual and human, with the natural imperfections of real reviews (contractions, informal phrasing, imperfect grammar here and there is fine). Refer to the product naturally as "it" or "this ${productType}" rather than repeating its full name.
+This review must be entirely positive — do not mention any flaw, complaint, downside, or thing that could be improved, even a minor one (e.g. never write things like "though the clasp felt a bit small" or "aside from a small learning curve"). If the rating is 4 rather than 5, express that only through a slightly calmer, less superlative tone (e.g. "really happy with this" instead of "best purchase ever") — never by naming an actual shortcoming.
+
+Write in first person, casual and human, with the natural imperfections of real reviews (contractions, informal phrasing, imperfect grammar here and there is fine). Refer to the product naturally as "it" or "this ${productType}" rather than repeating its full name — don't mention the brand name in every review, only when it feels natural. Don't start with a generic opener like "I bought this..." or "I recently purchased..." — vary how the review starts. Never state the numeric star rating or say things like "5/5" or "5 stars" inside the review text itself — the rating is tracked separately. Don't use emojis or quotation marks anywhere in the review. Avoid these overused phrases entirely: ${BANNED_PHRASES.join(", ")}.
 
 Respond with ONLY this JSON object, with your actual review text filled in — do not copy these instructions or example wording into your answer:
 {"title": "<your headline, under 8 words>", "content": "<your review, ${LENGTH_GUIDANCE[length]}>"}`;
