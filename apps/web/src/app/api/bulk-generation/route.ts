@@ -71,8 +71,6 @@ export async function POST(request: Request) {
     lengthMode,
     length,
     lengthWeights,
-    ratingMode,
-    ratingWeights,
   } = parsed.data;
 
   let products: { id: string; title: string; productType: string }[];
@@ -148,8 +146,6 @@ export async function POST(request: Request) {
         lengthMode,
         length,
         lengthWeights,
-        ratingMode,
-        ratingWeights,
         bulkJobId: bulkJob.id,
       } satisfies ReviewGenerationJobPayload,
     })),

@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
   DEFAULT_LENGTH_WEIGHTS,
-  DEFAULT_RATING_WEIGHTS,
   generateReviewsSchema,
   REVIEW_LENGTHS,
   type GenerateReviewsInput,
@@ -25,7 +24,6 @@ import {
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { LengthWeightInputs } from "@/components/dashboard/length-weight-inputs";
-import { RatingWeightInputs } from "@/components/dashboard/rating-weight-inputs";
 import { postJson } from "@/lib/api-client";
 
 const LENGTH_LABELS: Record<ReviewLength, string> = {
@@ -60,13 +58,10 @@ export function GenerateReviewsDialog({
       lengthMode: "FIXED",
       length: "MEDIUM",
       lengthWeights: DEFAULT_LENGTH_WEIGHTS,
-      ratingMode: "DEFAULT",
-      ratingWeights: DEFAULT_RATING_WEIGHTS,
     },
   });
 
   const lengthMode = useWatch({ control: form.control, name: "lengthMode" });
-  const ratingMode = useWatch({ control: form.control, name: "ratingMode" });
 
   useEffect(() => {
     if (target) {
@@ -78,8 +73,6 @@ export function GenerateReviewsDialog({
         lengthMode: "FIXED",
         length: "MEDIUM",
         lengthWeights: DEFAULT_LENGTH_WEIGHTS,
-        ratingMode: "DEFAULT",
-        ratingWeights: DEFAULT_RATING_WEIGHTS,
       });
     }
   }, [target, form]);
@@ -218,39 +211,6 @@ export function GenerateReviewsDialog({
             ) : (
               <LengthWeightInputs form={form} />
             )}
-
-            <FormField
-              control={form.control}
-              name="ratingMode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Rating distribution</FormLabel>
-                  <FormControl>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={field.value === "DEFAULT" ? "default" : "outline"}
-                        onClick={() => field.onChange("DEFAULT")}
-                      >
-                        Default
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={field.value === "MIXED" ? "default" : "outline"}
-                        onClick={() => field.onChange("MIXED")}
-                      >
-                        Custom mix
-                      </Button>
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {ratingMode === "MIXED" && <RatingWeightInputs form={form} />}
 
             <DialogFooter>
               <Button type="submit" disabled={form.formState.isSubmitting}>

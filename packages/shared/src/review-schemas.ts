@@ -32,44 +32,13 @@ export function pickWeightedLength(weights: LengthWeights): ReviewLength {
   return "MEDIUM";
 }
 
-export const RATING_MODES = ["DEFAULT", "MIXED"] as const;
-export type RatingMode = (typeof RATING_MODES)[number];
-
-// Negative (1-2 star) reviews are never auto-generated — this app exists to generate reviews
-// that make a store look good, and a negative review works against that purpose.
-export const RATING_SENTIMENTS = ["POSITIVE", "NEUTRAL"] as const;
-export type RatingSentiment = (typeof RATING_SENTIMENTS)[number];
-
-/** Relative weights (need not sum to 100 — normalized at pick time), one per sentiment bucket. */
-export type RatingWeights = Record<RatingSentiment, number>;
-
-/** Matches this app's original hardcoded distribution (55% 5-star, 25% 4-star, 12% 3-star)
- * collapsed into sentiment buckets, so DEFAULT mode is unchanged behavior for positive/neutral. */
-export const DEFAULT_RATING_WEIGHTS: RatingWeights = { POSITIVE: 80, NEUTRAL: 12 };
-
-const ratingWeightsSchema = z.object({
-  POSITIVE: z.number().min(0),
-  NEUTRAL: z.number().min(0),
-});
-
-/** Picks a star rating from a weighted sentiment mix. Within POSITIVE, splits 5-vs-4 star at the
- * same ~69/31 ratio as the original hardcoded distribution (55/(55+25)). NEUTRAL is always 3
- * stars. Falls back to a POSITIVE 5-star review if all weights are 0. */
-export function pickWeightedRating(weights: RatingWeights): number {
-  const total = RATING_SENTIMENTS.reduce((sum, tier) => sum + Math.max(0, weights[tier] ?? 0), 0);
-  let sentiment: RatingSentiment = "POSITIVE";
-  if (total > 0) {
-    let roll = Math.random() * total;
-    for (const tier of RATING_SENTIMENTS) {
-      const weight = Math.max(0, weights[tier] ?? 0);
-      if (roll < weight) {
-        sentiment = tier;
-        break;
-      }
-      roll -= weight;
-    }
-  }
-  if (sentiment === "NEUTRAL") return 3;
+// Only positive (4-5 star) reviews are auto-generated — this app exists to generate reviews that
+// make a store look good, so neither negative nor neutral reviews serve that purpose. There's
+// nothing left to configure a "mix" between, so unlike length (which still varies SHORT/MEDIUM/
+// DETAILED), rating is a fixed, non-configurable pick.
+/** Splits 5-vs-4 star at the same ~69/31 ratio as this app's original hardcoded distribution
+ * (55/(55+25)). */
+export function pickPositiveRating(): number {
   return Math.random() < 0.6875 ? 5 : 4;
 }
 
@@ -82,8 +51,6 @@ export const generateReviewsSchema = z
     lengthMode: z.enum(LENGTH_MODES).default("FIXED"),
     length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
     lengthWeights: lengthWeightsSchema.optional(),
-    ratingMode: z.enum(RATING_MODES).default("DEFAULT"),
-    ratingWeights: ratingWeightsSchema.optional(),
   })
   .refine((value) => value.maleCount + value.femaleCount > 0, {
     message: "Request at least 1 review",
@@ -99,13 +66,6 @@ export const generateReviewsSchema = z
       (value.lengthWeights &&
         value.lengthWeights.SHORT + value.lengthWeights.MEDIUM + value.lengthWeights.DETAILED > 0),
     { message: "At least one length weight must be greater than 0", path: ["lengthWeights"] },
-  )
-  .refine(
-    (value) =>
-      value.ratingMode !== "MIXED" ||
-      (value.ratingWeights &&
-        value.ratingWeights.POSITIVE + value.ratingWeights.NEUTRAL > 0),
-    { message: "At least one rating weight must be greater than 0", path: ["ratingWeights"] },
   );
 export type GenerateReviewsInput = z.infer<typeof generateReviewsSchema>;
 
@@ -117,8 +77,6 @@ export type ReviewGenerationJobPayload = {
   lengthMode: LengthMode;
   length: ReviewLength;
   lengthWeights?: LengthWeights;
-  ratingMode: RatingMode;
-  ratingWeights?: RatingWeights;
   bulkJobId?: string;
 };
 
@@ -140,8 +98,6 @@ export const bulkGenerateReviewsSchema = z
     lengthMode: z.enum(LENGTH_MODES).default("FIXED"),
     length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
     lengthWeights: lengthWeightsSchema.optional(),
-    ratingMode: z.enum(RATING_MODES).default("DEFAULT"),
-    ratingWeights: ratingWeightsSchema.optional(),
   })
   .refine(
     (value) => value.countMode !== "FIXED" || (value.maleCount ?? 0) + (value.femaleCount ?? 0) > 0,
@@ -165,13 +121,6 @@ export const bulkGenerateReviewsSchema = z
       (value.lengthWeights &&
         value.lengthWeights.SHORT + value.lengthWeights.MEDIUM + value.lengthWeights.DETAILED > 0),
     { message: "At least one length weight must be greater than 0", path: ["lengthWeights"] },
-  )
-  .refine(
-    (value) =>
-      value.ratingMode !== "MIXED" ||
-      (value.ratingWeights &&
-        value.ratingWeights.POSITIVE + value.ratingWeights.NEUTRAL > 0),
-    { message: "At least one rating weight must be greater than 0", path: ["ratingWeights"] },
   );
 export type BulkGenerateReviewsInput = z.infer<typeof bulkGenerateReviewsSchema>;
 

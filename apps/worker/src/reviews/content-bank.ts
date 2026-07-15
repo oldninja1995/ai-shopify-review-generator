@@ -4,16 +4,13 @@
  * generation has no external dependency and no per-request cost.
  */
 
-export type RatingTier = "5" | "4" | "3";
+export type RatingTier = "5" | "4";
 
-// Ratings below 3 stars are never auto-generated (see pickWeightedRating in
-// packages/shared/src/review-schemas.ts, which only offers POSITIVE/NEUTRAL sentiment) — a
-// manually-edited review can still be set to 1-2 stars via the edit dialog, so this stays total
-// rather than throwing, collapsing into the nearest tier's phrasing.
+// Only 4-5 star ratings are ever auto-generated (see pickPositiveRating in
+// packages/shared/src/review-schemas.ts) — a manually-edited review can still be set to 1-3 stars
+// via the edit dialog, so this stays total rather than throwing, collapsing into tier "4".
 export function ratingToTier(rating: number): RatingTier {
-  if (rating >= 5) return "5";
-  if (rating === 4) return "4";
-  return "3";
+  return rating >= 5 ? "5" : "4";
 }
 
 type Phrase = string; // may contain {productType}, {brandCategory}, {brandName} placeholders
@@ -53,20 +50,6 @@ export const OPENERS: Record<RatingTier, Phrase[]> = {
     "Good quality and arrived exactly as described.",
     "I have minor nitpicks, but nothing that ruins the experience.",
   ],
-  "3": [
-    "This is a fine product, nothing more, nothing less.",
-    "It does the job, though I expected a bit more.",
-    "Mixed feelings about this one.",
-    "It's okay — not amazing, not bad.",
-    "This met some expectations but not all of them.",
-    "Decent for the price, though I've seen better.",
-    "I'm still deciding how I feel about this.",
-    "It works fine, just didn't wow me.",
-    "This is a reasonable choice if you're not picky.",
-    "There are things I like and things I'd change.",
-    "It's a middle-of-the-road product overall.",
-    "Not bad, but I probably wouldn't buy it again.",
-  ],
 };
 
 export const DETAILS: Record<RatingTier, Phrase[]> = {
@@ -104,18 +87,6 @@ export const DETAILS: Record<RatingTier, Phrase[]> = {
     "The {productType} feels like it'll last a good while.",
     "Solid entry in the {brandCategory} space, worth considering.",
   ],
-  "3": [
-    "The {productType} works as described, nothing extra.",
-    "It's fine for everyday use.",
-    "This {productType} gets the job done without standing out.",
-    "I think the price of this {productType} is fair, not a bargain.",
-    "It matched the listing, at least.",
-    "This {productType} is functional but a bit unremarkable.",
-    "Nothing wrong with this {productType}, just nothing exceptional either.",
-    "This {productType} is average compared to others I've owned.",
-    "It does what it says, just without much flair.",
-    "I'd call this {productType} a safe, unexciting choice.",
-  ],
 };
 
 export const CLOSERS: Record<RatingTier, Phrase[]> = {
@@ -136,13 +107,6 @@ export const CLOSERS: Record<RatingTier, Phrase[]> = {
     "A solid choice overall.",
     "Glad I gave this a try.",
     "Worth it for the price.",
-  ],
-  "3": [
-    "Might try something else next time, but this works for now.",
-    "It's fine — wouldn't go out of my way to recommend it.",
-    "An okay option if you're not expecting much.",
-    "Neutral on whether I'd repurchase.",
-    "Serviceable, but not memorable.",
   ],
 };
 
@@ -192,10 +156,6 @@ export const GIFT_OPENERS: Record<RatingTier, Phrase[]> = {
     "Got this for my {giftRecipient} and it's gone over well.",
     "This was a gift for my {giftRecipient} — pretty solid choice overall.",
   ],
-  "3": [
-    "Got this as a gift for my {giftRecipient} — mixed feelings from them, honestly.",
-    "Picked this up for my {giftRecipient}. It's fine, nothing special.",
-  ],
 };
 
 export const GIFT_DETAILS: Record<RatingTier, Phrase[]> = {
@@ -210,10 +170,6 @@ export const GIFT_DETAILS: Record<RatingTier, Phrase[]> = {
     "The {productType} arrived quickly and matched what I expected for my {giftRecipient}.",
     "My {giftRecipient} says this {productType} feels durable and well-made.",
   ],
-  "3": [
-    "My {giftRecipient} says the {productType} works as described, nothing extra.",
-    "It's a fine {productType} for my {giftRecipient}, nothing that stood out either way.",
-  ],
 };
 
 export const GIFT_CLOSERS: Record<RatingTier, Phrase[]> = {
@@ -223,7 +179,6 @@ export const GIFT_CLOSERS: Record<RatingTier, Phrase[]> = {
     "Would absolutely buy this as a gift again.",
   ],
   "4": ["Happy I went with this as a gift.", "Would consider buying this as a gift again."],
-  "3": ["Might look elsewhere next time I need a gift like this.", "An okay gift option, nothing more."],
 };
 
 export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
@@ -243,13 +198,6 @@ export const TITLE_PHRASES: Record<RatingTier, Phrase[]> = {
     "Pleasantly surprised",
     "Would recommend",
     "Great addition to my routine",
-  ],
-  "3": [
-    "It's okay",
-    "Does the job",
-    "Average, but functional",
-    "Mixed feelings",
-    "Fair for the price",
   ],
 };
 

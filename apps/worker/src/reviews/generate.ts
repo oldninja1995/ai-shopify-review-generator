@@ -1,11 +1,10 @@
 import { prisma } from "@ai-shopify/db";
 import {
   decryptSecret,
-  DEFAULT_RATING_WEIGHTS,
   detectAudienceGender,
   pickGiftRecipient,
+  pickPositiveRating,
   pickWeightedLength,
-  pickWeightedRating,
   type ReviewGenerationJobPayload,
   type ReviewLength,
 } from "@ai-shopify/shared";
@@ -72,8 +71,7 @@ async function produceReview(params: ProduceReviewParams): Promise<AssembledRevi
 }
 
 export async function generateReviewsForProduct(payload: ReviewGenerationJobPayload): Promise<void> {
-  const { productId, maleCount, femaleCount, lengthMode, length, lengthWeights, ratingMode, ratingWeights } =
-    payload;
+  const { productId, maleCount, femaleCount, lengthMode, length, lengthWeights } = payload;
 
   const product = await prisma.product.findUniqueOrThrow({
     where: { id: productId },
@@ -132,7 +130,7 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
       reviewer,
       giftRecipient: audience !== "UNISEX" && audience !== gender ? pickGiftRecipient(gender) : undefined,
       reviewLength: lengthMode === "MIXED" && lengthWeights ? pickWeightedLength(lengthWeights) : length,
-      rating: pickWeightedRating(ratingMode === "MIXED" && ratingWeights ? ratingWeights : DEFAULT_RATING_WEIGHTS),
+      rating: pickPositiveRating(),
     });
   }
 
