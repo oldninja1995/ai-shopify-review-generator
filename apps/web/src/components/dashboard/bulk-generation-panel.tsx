@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { BulkGenerateDialog, type BulkGenerateTarget } from "@/components/dashboard/bulk-generate-dialog";
-import { postJson } from "@/lib/api-client";
+import { getJson, postJson } from "@/lib/api-client";
 
 export type BulkJobRow = {
   id: string;
@@ -55,7 +55,7 @@ function estimateRemaining(job: BulkJobRow): string | null {
 
 export function BulkGenerationPanel({
   collections,
-  jobs,
+  jobs: initialJobs,
   storeProductCount,
 }: {
   collections: { value: string; label: string; productCount: number }[];
@@ -63,19 +63,39 @@ export function BulkGenerationPanel({
   storeProductCount: number;
 }) {
   const router = useRouter();
+  const [jobs, setJobs] = useState(initialJobs);
+  const [prevInitialJobs, setPrevInitialJobs] = useState(initialJobs);
   const [target, setTarget] = useState<BulkGenerateTarget | null>(null);
   const [collectionId, setCollectionId] = useState(collections[0]?.value ?? "");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  // Keep local state in sync whenever the server re-renders this page (e.g. after an explicit
+  // router.refresh() from a user action) without clobbering it in between. Adjusting state during
+  // render (React's documented pattern for this) rather than in an effect, to avoid an extra
+  // render pass on every prop change.
+  if (initialJobs !== prevInitialJobs) {
+    setPrevInitialJobs(initialJobs);
+    setJobs(initialJobs);
+  }
 
   const hasActiveJob = jobs.some((job) => job.status === "PENDING" || job.status === "RUNNING");
 
   // Bulk jobs can run for hours on AI-heavy stores — without this, the panel only ever showed
   // whatever counts were on the page at last load, making a genuinely-progressing job look stuck.
+  // Polls a lightweight status-only endpoint rather than router.refresh(), which would re-run
+  // every query on the whole hosting page every 2s for as long as a job is active.
   useEffect(() => {
     if (!hasActiveJob) return;
-    const interval = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(interval);
-  }, [hasActiveJob, router]);
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      const result = await getJson<{ jobs: BulkJobRow[] }>("/api/bulk-generation");
+      if (!cancelled && result.success) setJobs(result.data.jobs);
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hasActiveJob]);
 
   async function cancelJob(id: string) {
     setCancellingId(id);

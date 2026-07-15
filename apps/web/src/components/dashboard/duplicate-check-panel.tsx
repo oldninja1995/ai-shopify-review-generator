@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DuplicateFlagsDialog } from "@/components/dashboard/duplicate-flags-dialog";
-import { postJson } from "@/lib/api-client";
+import { getJson, postJson } from "@/lib/api-client";
 
 const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
   PENDING: "outline",
@@ -66,8 +66,10 @@ function estimateRemaining(job: DuplicateCheckJobRow): string | null {
   return `~${formatDuration(remaining * msPerReview)} remaining`;
 }
 
-export function DuplicateCheckPanel({ jobs }: { jobs: DuplicateCheckJobRow[] }) {
+export function DuplicateCheckPanel({ jobs: initialJobs }: { jobs: DuplicateCheckJobRow[] }) {
   const router = useRouter();
+  const [jobs, setJobs] = useState(initialJobs);
+  const [prevInitialJobs, setPrevInitialJobs] = useState(initialJobs);
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<DuplicateCheckScope>("ALL");
   const [limit, setLimit] = useState(200);
@@ -75,13 +77,29 @@ export function DuplicateCheckPanel({ jobs }: { jobs: DuplicateCheckJobRow[] }) 
   const [starting, setStarting] = useState(false);
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
 
+  // Adjusting state during render (React's documented pattern) rather than in an effect, to avoid
+  // an extra render pass whenever the server re-renders this page with fresh job rows.
+  if (initialJobs !== prevInitialJobs) {
+    setPrevInitialJobs(initialJobs);
+    setJobs(initialJobs);
+  }
+
   const hasActiveJob = jobs.some((job) => job.status === "PENDING" || job.status === "RUNNING");
 
+  // Polls a lightweight status-only endpoint rather than router.refresh(), which would re-run
+  // every query on the whole hosting page every 2s for as long as a job is active.
   useEffect(() => {
     if (!hasActiveJob) return;
-    const interval = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(interval);
-  }, [hasActiveJob, router]);
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      const result = await getJson<{ jobs: DuplicateCheckJobRow[] }>("/api/reviews/check-duplicates");
+      if (!cancelled && result.success) setJobs(result.data.jobs);
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hasActiveJob]);
 
   async function startCheck() {
     setStarting(true);

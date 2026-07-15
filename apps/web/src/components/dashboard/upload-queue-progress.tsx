@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { postJson } from "@/lib/api-client";
+import { getJson, postJson } from "@/lib/api-client";
 
 export type UploadQueueSummary = {
   total: number;
@@ -40,19 +40,38 @@ function estimateRemaining(summary: UploadQueueSummary, inFlight: number): strin
  * than tracked on one row. Auto-polls while anything is still pending/processing, same pattern as
  * DuplicateCheckPanel, since this is a server-rendered page with no other way to reflect
  * background progress. */
-export function UploadQueueProgress({ summary }: { summary: UploadQueueSummary }) {
+export function UploadQueueProgress({ summary: initialSummary }: { summary: UploadQueueSummary }) {
   const router = useRouter();
+  const [summary, setSummary] = useState(initialSummary);
+  const [prevInitialSummary, setPrevInitialSummary] = useState(initialSummary);
   const [cancelling, setCancelling] = useState(false);
+
+  // Adjusting state during render (React's documented pattern) rather than in an effect, to avoid
+  // an extra render pass whenever the server re-renders this page with a fresh summary.
+  if (initialSummary !== prevInitialSummary) {
+    setPrevInitialSummary(initialSummary);
+    setSummary(initialSummary);
+  }
+
   const inFlight = summary.pending + summary.processing;
   const processed = summary.succeeded + summary.failed;
   const percent = summary.total > 0 ? Math.round((processed / summary.total) * 100) : 0;
   const eta = estimateRemaining(summary, inFlight);
 
+  // Polls a lightweight status-only endpoint rather than router.refresh(), which would re-run
+  // every query on the whole hosting page every 2s for as long as anything is in flight.
   useEffect(() => {
     if (inFlight === 0) return;
-    const interval = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(interval);
-  }, [inFlight, router]);
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      const result = await getJson<{ summary: UploadQueueSummary }>("/api/upload-queue/summary");
+      if (!cancelled && result.success) setSummary(result.data.summary);
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [inFlight]);
 
   async function cancelRemaining() {
     setCancelling(true);

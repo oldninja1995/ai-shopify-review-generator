@@ -9,6 +9,30 @@ import {
 import { getCurrentUser } from "@/lib/auth/session";
 import { duplicateCheckQueue } from "@/lib/queue";
 
+export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json(apiFailure("Not authenticated", { code: "NOT_AUTHENTICATED" }), {
+      status: 401,
+    });
+  }
+
+  const store = await prisma.shopifyStore.findFirst({
+    where: { userId: user.id },
+    orderBy: { connectedAt: "desc" },
+  });
+  if (!store) {
+    return NextResponse.json(apiSuccess({ jobs: [] }));
+  }
+
+  const jobs = await prisma.duplicateCheckJob.findMany({
+    where: { storeId: store.id },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+  return NextResponse.json(apiSuccess({ jobs }));
+}
+
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
