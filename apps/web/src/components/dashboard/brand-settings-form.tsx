@@ -152,12 +152,16 @@ export function BrandSettingsForm({ initialValues }: { initialValues: BrandSetti
                 <FormItem>
                   <FormLabel>Unique selling point / competitive edge</FormLabel>
                   <FormControl>
-                    <Textarea
-                      rows={2}
-                      placeholder="Phrase it as a continuation of &quot;this brand ___&quot;, e.g. uses 100% recycled packaging"
+                    <Input
+                      maxLength={100}
+                      placeholder="uses 100% recycled packaging"
                       {...field}
                     />
                   </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    One short phrase only, continuing &quot;this brand ___&quot; — not a paragraph or list.
+                    It gets dropped directly into generated reviews, so keep it natural.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

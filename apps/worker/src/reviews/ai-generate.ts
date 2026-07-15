@@ -1,4 +1,4 @@
-import type { ReviewLength } from "@ai-shopify/shared";
+import { isUsableUspPhrase, type ReviewLength } from "@ai-shopify/shared";
 
 const LENGTH_GUIDANCE: Record<ReviewLength, string> = {
   SHORT: "1-2 short sentences",
@@ -58,9 +58,13 @@ export type AiReviewParams = {
 function buildPrompt(params: Omit<AiReviewParams, "apiKey">): string {
   const { productTitle, productType, brand, reviewer, rating, length, giftRecipient } = params;
 
+  // A malformed USP (multi-line marketing copy instead of a short phrase) risks the model
+  // echoing it verbatim into the review rather than paraphrasing — same guard as the
+  // phrase-bank path in assemble-review.ts, so only well-formed USPs reach the prompt.
+  const usableUsp = brand?.usp && isUsableUspPhrase(brand.usp) ? brand.usp : undefined;
   const brandContext = brand?.name
     ? `The store/brand is called "${brand.name}"${brand.category ? ` (a ${brand.category} brand)` : ""}.${
-        brand.usp ? ` Something that sets this brand apart: this brand ${brand.usp}.` : ""
+        usableUsp ? ` Something that sets this brand apart: this brand ${usableUsp}.` : ""
       }`
     : "";
 

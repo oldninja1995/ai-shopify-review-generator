@@ -1,4 +1,4 @@
-import type { ReviewLength } from "@ai-shopify/shared";
+import { isUsableUspPhrase, type ReviewLength } from "@ai-shopify/shared";
 import {
   BRAND_CLOSERS,
   CLOSERS,
@@ -69,7 +69,10 @@ export function assembleReview(params: AssembleReviewParams): AssembledReview {
   // Brand/USP closers lean on personal-use framing ("I'll be shopping here again"), which reads
   // oddly alongside gift framing, so gift reviews skip straight to the gift closer pool.
   const canUseBrandCloser = !isGift && (tier === "5" || tier === "4") && Boolean(brand?.name);
-  const canUseUspCloser = !isGift && (tier === "5" || tier === "4") && Boolean(brand?.usp);
+  // Guards against stale/malformed stored USPs (e.g. multi-line marketing copy pasted into the
+  // field before validation caught this) — not just missing ones — since {usp} is spliced
+  // verbatim into a short sentence template below.
+  const canUseUspCloser = !isGift && (tier === "5" || tier === "4") && Boolean(brand?.usp && isUsableUspPhrase(brand.usp));
 
   let openerIdx = 0;
   let detailIdxs: number[] = [];
