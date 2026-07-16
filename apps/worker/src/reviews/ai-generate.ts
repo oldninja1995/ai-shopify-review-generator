@@ -53,11 +53,24 @@ function containsNegativeLanguage(text: string): boolean {
   return NEGATIVE_LANGUAGE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+/** Catches a single "Label: short value" line (e.g. "User Safety: safe") — some models emit a
+ * stray classification/moderation-style fragment instead of review prose. Real review text always
+ * has sentence punctuation or is at least a few words of ordinary prose, so a short colon-separated
+ * label with no sentence punctuation is never a legitimate review. */
+function looksLikeLabelFragment(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    /^[A-Za-z][A-Za-z0-9 /'-]{1,40}:\s*[A-Za-z0-9][A-Za-z0-9 /'-]{0,40}$/.test(trimmed) &&
+    !/[.!?]/.test(trimmed)
+  );
+}
+
 /** Catches leftover template syntax (angle-bracket placeholders) or fragments of unparseable
  * JSON — signs the model didn't actually produce a finished, fillable-in review. */
 function looksUnusable(text: string): boolean {
   if (looksLikeMetaCommentary(text)) return true;
   if (containsNegativeLanguage(text)) return true;
+  if (looksLikeLabelFragment(text)) return true;
   if (/<your\s/i.test(text)) return true;
   if (/"title"\s*:|"content"\s*:/.test(text)) return true;
   return false;
@@ -176,6 +189,7 @@ function extractJsonReview(raw: string): { title: string; content: string } | nu
         parsed.content &&
         parsed.title !== PLACEHOLDER_TITLE &&
         parsed.content !== PLACEHOLDER_CONTENT &&
+        parsed.title.trim().toLowerCase() !== parsed.content.trim().toLowerCase() &&
         !looksUnusable(parsed.title) &&
         !looksUnusable(parsed.content)
       ) {
