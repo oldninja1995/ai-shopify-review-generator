@@ -23,6 +23,7 @@ export type AiSettingsInitialValues = {
   enabled: boolean;
   models: string[];
   hasApiKey: boolean;
+  visionAudienceEnabled: boolean;
 };
 
 export function AiSettingsForm({
@@ -36,6 +37,9 @@ export function AiSettingsForm({
   const [enabled, setEnabled] = useState(initialValues.enabled);
   const [selected, setSelected] = useState<string[]>(initialValues.models);
   const [apiKey, setApiKey] = useState("");
+  const [visionAudienceEnabled, setVisionAudienceEnabled] = useState(
+    initialValues.visionAudienceEnabled,
+  );
   const [saving, setSaving] = useState(false);
 
   const freeModels = models.filter((m) => m.isFree && !selected.includes(m.id));
@@ -69,6 +73,7 @@ export function AiSettingsForm({
       apiKey: apiKey.trim() ? apiKey.trim() : undefined,
       models: selected,
       enabled,
+      visionAudienceEnabled,
     });
     setSaving(false);
     if (!result.success) {
@@ -217,6 +222,36 @@ export function AiSettingsForm({
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={initialValues.hasApiKey ? "•••••••• (saved — leave blank to keep)" : "sk-or-..."}
             />
+          </div>
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <Label>Image-based audience detection</Label>
+            <p className="text-sm text-muted-foreground">
+              For products the title/type can&apos;t clearly tell are male, female, or unisex,
+              look at the product photo (via an AI vision model) to decide instead — improves
+              reviewer-gender matching and gift framing. Checked once per product and cached, not
+              on every generation. Uses one extra AI call per product the first time; free vision
+              models on OpenRouter are sometimes rate-limited, in which case this silently falls
+              back to the title/type guess.
+            </p>
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={visionAudienceEnabled ? "default" : "outline"}
+                onClick={() => setVisionAudienceEnabled(true)}
+              >
+                Enabled
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!visionAudienceEnabled ? "default" : "outline"}
+                onClick={() => setVisionAudienceEnabled(false)}
+              >
+                Disabled
+              </Button>
+            </div>
           </div>
         </CardContent>
         <CardFooter>

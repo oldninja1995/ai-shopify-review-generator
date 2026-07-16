@@ -114,13 +114,15 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
 
   // Vision-based audience detection catches products a text-only heuristic can't (e.g. a plain
   // "Chain" with no gendered word in the name, but styled in a clearly masculine/feminine way).
-  // Cached on the product after the first successful analysis (detectedAudience) so this only
-  // costs one API call ever per product, not one per generation request. Only persisted on a
-  // definitive vision result — if vision isn't attempted (no AI configured, no image) or fails,
-  // nothing is cached, so a later run can still retry it once AI/images are available.
+  // Opt-in per store (AiSettings.visionAudienceEnabled, defaults off) since it costs an extra AI
+  // call and free vision-capable OpenRouter models are frequently rate-limited. Cached on the
+  // product after the first successful analysis (detectedAudience) so this only costs one API
+  // call ever per product, not one per generation request. Only persisted on a definitive vision
+  // result — if vision isn't attempted (disabled, no AI configured, no image) or fails, nothing
+  // is cached, so a later run can still retry it once it's enabled/AI/images are available.
   let audience = product.detectedAudience ?? detectAudienceGender(product.title, effectiveProductType);
   const primaryImage = product.images[0];
-  if (!product.detectedAudience && ai && primaryImage) {
+  if (!product.detectedAudience && ai && aiSettings?.visionAudienceEnabled && primaryImage) {
     try {
       const visionAudience = await analyzeProductAudienceFromImage(ai.apiKey, primaryImage.url);
       if (visionAudience) {

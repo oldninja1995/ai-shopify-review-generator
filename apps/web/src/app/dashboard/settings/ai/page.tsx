@@ -45,6 +45,7 @@ export default async function AiSettingsPage() {
           enabled: aiSettings?.enabled ?? false,
           models: aiSettings?.models ?? [],
           hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
+          visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,
         }}
         models={models}
       />

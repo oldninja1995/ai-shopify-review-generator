@@ -362,6 +362,11 @@ model AiSettings {
   apiKeyEncrypted String?      @db.Text
   models          String[]     @default([])
   enabled         Boolean      @default(false)
+  // Optional add-on to text-based generation: analyzes a product's primary image (via one of the
+  // configured OpenRouter models) to detect audience gender when the text heuristic can't tell.
+  // Off by default — costs an extra AI call per product (cached after the first success) and free
+  // vision-capable models on OpenRouter are frequently rate-limited/oversubscribed.
+  visionAudienceEnabled Boolean @default(false)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
