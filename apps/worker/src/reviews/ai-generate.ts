@@ -1,9 +1,11 @@
 import { isUsableUspPhrase, type ReviewLength } from "@ai-shopify/shared";
 
+// Kept deliberately short across all three tiers — real customer reviews are almost always brief,
+// and even the "long" tier should read as a slightly fuller quick review, not a paragraph.
 const LENGTH_GUIDANCE: Record<ReviewLength, string> = {
-  SHORT: "1-2 short sentences",
-  MEDIUM: "2-4 sentences",
-  DETAILED: "4-6 sentences with some specific detail",
+  SHORT: "1 short sentence, under 15 words",
+  MEDIUM: "1-2 sentences",
+  DETAILED: "2-3 sentences, with one specific detail",
 };
 
 const PLACEHOLDER_TITLE = "a short review headline, under 8 words";

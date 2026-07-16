@@ -71,10 +71,12 @@ export type AssembleReviewParams = {
   giftRecipient?: string;
 };
 
+// DETAILED kept to 1 detail sentence (not 2) — matches the AI path's tightened "2-3 sentences"
+// guidance so a phrase-bank fallback doesn't read noticeably longer than an AI-written review.
 const DETAIL_COUNT_BY_LENGTH: Record<ReviewLength, number> = {
   SHORT: 0,
   MEDIUM: 1,
-  DETAILED: 2,
+  DETAILED: 1,
 };
 
 /**

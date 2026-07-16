@@ -9,7 +9,9 @@ export type LengthMode = (typeof LENGTH_MODES)[number];
 /** Relative weights (need not sum to 100 — normalized at pick time), one per length tier. */
 export type LengthWeights = Record<ReviewLength, number>;
 
-export const DEFAULT_LENGTH_WEIGHTS: LengthWeights = { SHORT: 30, MEDIUM: 50, DETAILED: 20 };
+// Real customer reviews skew short (often one quick sentence) — weighted toward SHORT/MEDIUM,
+// DETAILED kept rare so long reviews don't dominate a batch.
+export const DEFAULT_LENGTH_WEIGHTS: LengthWeights = { SHORT: 55, MEDIUM: 35, DETAILED: 10 };
 
 const lengthWeightsSchema = z.object({
   SHORT: z.number().min(0),
