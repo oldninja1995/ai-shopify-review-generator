@@ -6,7 +6,7 @@ export const REFRESH_TOKEN_COOKIE = "refresh_token";
 
 const isProduction = process.env.NODE_ENV === "production";
 
-async function baseCookieOptions(maxAgeMs: number) {
+export async function baseCookieOptions(maxAgeMs: number) {
   return {
     httpOnly: true,
     secure: isProduction,

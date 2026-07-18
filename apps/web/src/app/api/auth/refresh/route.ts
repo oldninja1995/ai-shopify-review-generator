@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@ai-shopify/db";
 import { apiSuccess, apiFailure } from "@ai-shopify/shared";
-import { clearAuthCookies, getRefreshTokenCookie } from "@/lib/auth/cookies";
-import { hashOpaqueToken } from "@/lib/auth/refresh-token";
-import { issueSession } from "@/lib/auth/issue-session";
+import { clearAuthCookies, getRefreshTokenCookie, setAuthCookies } from "@/lib/auth/cookies";
+import { rotateRefreshSession } from "@/lib/auth/refresh-session";
 
 export async function POST() {
   const refreshToken = await getRefreshTokenCookie();
@@ -12,24 +10,14 @@ export async function POST() {
     return NextResponse.json(apiFailure("Not authenticated", { code: "NO_SESSION" }), { status: 401 });
   }
 
-  const session = await prisma.refreshSession.findUnique({
-    where: { hashedToken: hashOpaqueToken(refreshToken) },
-    include: { user: { select: { id: true, email: true, name: true } } },
-  });
+  const result = await rotateRefreshSession(refreshToken);
 
-  const isValid = session && !session.revokedAt && session.expiresAt > new Date();
-
-  if (!session || !isValid) {
+  if (!result) {
     await clearAuthCookies();
     return NextResponse.json(apiFailure("Session expired", { code: "SESSION_EXPIRED" }), { status: 401 });
   }
 
-  await prisma.refreshSession.update({
-    where: { id: session.id },
-    data: { revokedAt: new Date() },
-  });
+  await setAuthCookies(result.accessToken, result.refreshToken);
 
-  await issueSession(session.user.id);
-
-  return NextResponse.json(apiSuccess({ user: session.user }));
+  return NextResponse.json(apiSuccess({ user: result.user }));
 }
