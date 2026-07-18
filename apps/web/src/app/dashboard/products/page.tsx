@@ -9,7 +9,6 @@ import { ConnectStoreForm } from "@/components/dashboard/connect-store-form";
 import { SyncButton } from "@/components/dashboard/sync-button";
 import { ProductsTable, type ProductRow } from "@/components/dashboard/products-table";
 import { ProductsFilters } from "@/components/dashboard/products-filters";
-import { AiStatusBanner } from "@/components/dashboard/ai-status-banner";
 import { cn } from "@/lib/utils";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -177,7 +176,6 @@ export default async function ProductsPage({
         </Card>
       ) : (
         <>
-          <AiStatusBanner userId={user.id} />
           <Card>
             <CardContent className="flex items-center justify-between pt-1 text-sm">
               <div>

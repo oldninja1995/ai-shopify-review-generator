@@ -4,7 +4,6 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ReviewList, type ReviewListItem } from "@/components/dashboard/review-list";
 import { BulkGenerationPanel, type BulkJobRow } from "@/components/dashboard/bulk-generation-panel";
-import { AiStatusBanner } from "@/components/dashboard/ai-status-banner";
 
 export default async function ReviewGeneratorPage() {
   const user = await getCurrentUser();
@@ -86,7 +85,6 @@ export default async function ReviewGeneratorPage() {
         </Card>
       ) : (
         <>
-          <AiStatusBanner userId={user.id} />
           <BulkGenerationPanel
             collections={collectionOptions}
             jobs={bulkJobs}

@@ -9,7 +9,7 @@ import {
   type ReviewLength,
 } from "@ai-shopify/shared";
 import { assembleReview, type AssembledReview } from "./assemble-review.js";
-import { generateReviewWithAI, type AiProviderConfig, type ProviderQuotaEvent } from "./ai-generate.js";
+import { generateReviewWithAI, type AiProviderConfig } from "./ai-generate.js";
 import { analyzeProductAudienceFromImage } from "./vision-audience.js";
 import { hashReviewContent } from "./content-hash.js";
 import { getOrCreateReviewer } from "./reviewer-pool.js";
@@ -49,9 +49,6 @@ type ProduceReviewParams = {
    * configured provider failed and this review fell back to the phrase bank, so the dashboard can
    * surface that AI generation is currently degraded. */
   onAiFallback?: (error: unknown) => void;
-  /** Called after every provider call attempt so the dashboard can show live remaining/limit
-   * numbers instead of a guess. */
-  onQuotaInfo?: (event: ProviderQuotaEvent) => void;
   /** Set when the reviewer's own gender doesn't match the product's detected audience. */
   giftRecipient?: string;
 };
@@ -59,23 +56,19 @@ type ProduceReviewParams = {
 /** Tries real AI generation first when configured; falls back to the phrase-bank assembler on any
  * failure (missing/invalid key, rate limit, network error) so a job never hard-fails over this. */
 async function produceReview(params: ProduceReviewParams): Promise<AssembledReview> {
-  const { ai, productTitle, reviewer, onAiFallback, onQuotaInfo, ...assembleParams } = params;
+  const { ai, productTitle, reviewer, onAiFallback, ...assembleParams } = params;
 
   if (ai.length > 0) {
     try {
-      const { title, content } = await generateReviewWithAI(
-        ai,
-        {
-          productTitle,
-          productType: assembleParams.productType,
-          brand: assembleParams.brand,
-          reviewer,
-          rating: assembleParams.rating,
-          length: assembleParams.length,
-          giftRecipient: assembleParams.giftRecipient,
-        },
-        onQuotaInfo,
-      );
+      const { title, content } = await generateReviewWithAI(ai, {
+        productTitle,
+        productType: assembleParams.productType,
+        brand: assembleParams.brand,
+        reviewer,
+        rating: assembleParams.rating,
+        length: assembleParams.length,
+        giftRecipient: assembleParams.giftRecipient,
+      });
       return { title, content, comboKey: `ai:${hashReviewContent(content)}` };
     } catch (error) {
       console.error(`[review-generation] AI generation failed for all models, falling back to phrase bank:`, error);
@@ -109,7 +102,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   const openRouterAi: AiProviderConfig | undefined =
     aiSettings?.enabled && aiSettings.apiKeyEncrypted && aiSettings.models.length > 0
       ? {
-          name: "openrouter",
           baseUrl: "https://openrouter.ai/api/v1",
           apiKey: decryptSecret(aiSettings.apiKeyEncrypted, env.ENCRYPTION_KEY),
           models: aiSettings.models,
@@ -120,7 +112,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   const groqAi: AiProviderConfig | undefined =
     aiSettings?.enabled && aiSettings.groqApiKeyEncrypted && aiSettings.groqModels.length > 0
       ? {
-          name: "groq",
           baseUrl: "https://api.groq.com/openai/v1",
           apiKey: decryptSecret(aiSettings.groqApiKeyEncrypted, env.ENCRYPTION_KEY),
           models: aiSettings.groqModels,
@@ -129,48 +120,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   const ai: AiProviderConfig[] = [openRouterAi, groqAi].filter(
     (config): config is AiProviderConfig => Boolean(config),
   );
-
-  // Persists a live snapshot of each provider's rate-limit status so the dashboard can show real
-  // remaining/limit numbers. Groq reports this on every call; OpenRouter only reports anything at
-  // all once actually rate-limited, so its "account" row also self-tracks a daily attempt count
-  // in the meantime as a best-effort estimate (see AiProviderQuota's schema doc comment).
-  function persistQuotaEvent(event: ProviderQuotaEvent) {
-    void (async () => {
-      try {
-        const existing = await prisma.aiProviderQuota.findUnique({
-          where: { storeId_provider_model: { storeId: product.storeId, provider: event.provider, model: event.model } },
-        });
-
-        // When this call didn't return any rate-limit info at all, keep whatever we already had
-        // rather than overwriting known-good data with nulls.
-        const keep = <T>(fresh: T | null | undefined, prior: T | null | undefined): T | null =>
-          event.snapshot ? (fresh ?? null) : (prior ?? null);
-
-        const today = new Date().toISOString().slice(0, 10);
-        const selfTrackedCount =
-          event.provider === "openrouter" ? (existing?.selfTrackedDay === today ? existing.selfTrackedCount + 1 : 1) : 0;
-
-        const data = {
-          limitRequests: keep(event.snapshot?.limitRequests, existing?.limitRequests),
-          remainingRequests: keep(event.snapshot?.remainingRequests, existing?.remainingRequests),
-          requestsResetAt: keep(event.snapshot?.requestsResetAt, existing?.requestsResetAt),
-          limitTokens: keep(event.snapshot?.limitTokens, existing?.limitTokens),
-          remainingTokens: keep(event.snapshot?.remainingTokens, existing?.remainingTokens),
-          tokensResetAt: keep(event.snapshot?.tokensResetAt, existing?.tokensResetAt),
-          selfTrackedCount,
-          selfTrackedDay: today,
-        };
-
-        await prisma.aiProviderQuota.upsert({
-          where: { storeId_provider_model: { storeId: product.storeId, provider: event.provider, model: event.model } },
-          create: { storeId: product.storeId, provider: event.provider, model: event.model, ...data },
-          update: data,
-        });
-      } catch (error) {
-        console.error("[review-generation] failed to persist AI quota snapshot:", error);
-      }
-    })();
-  }
 
   const existingReviews = await prisma.generatedReview.findMany({
     where: { productId },
@@ -286,7 +235,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           excludeCombos: usedCombos,
           ai,
           onAiFallback: warnAiFallbackOnce,
-          onQuotaInfo: persistQuotaEvent,
           giftRecipient,
         });
         let hash = hashReviewContent(produced.content);
@@ -304,8 +252,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
             reviewer: reviewerPersona,
             excludeCombos: usedCombos,
             ai,
-            onAiFallback: warnAiFallbackOnce,
-            onQuotaInfo: persistQuotaEvent,
             giftRecipient,
           });
           hash = hashReviewContent(produced.content);
