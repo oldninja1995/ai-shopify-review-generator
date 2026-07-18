@@ -18,11 +18,13 @@ import { env } from "../env.js";
 const MAX_HASH_RETRIES = 2;
 const MAX_REVIEW_AGE_DAYS = 180;
 
+/** Picks a uniformly random instant within the lookback window, not just a random day — otherwise
+ * every review kept today's exact clock time and only the day-of-month varied, so a whole batch
+ * generated in one run would show identical (or near-identical) times of day across every review. */
 function randomPastDate(): Date {
-  const daysAgo = Math.floor(Math.random() * MAX_REVIEW_AGE_DAYS);
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
-  return date;
+  const maxMsAgo = MAX_REVIEW_AGE_DAYS * 24 * 60 * 60 * 1000;
+  const msAgo = Math.floor(Math.random() * maxMsAgo);
+  return new Date(Date.now() - msAgo);
 }
 
 type AiConfig = { apiKey: string; models: string[] };
