@@ -122,16 +122,30 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
 
   if (rows.length === 0 && !recentFallback) return null;
 
+  // Each review is ~1 API request in the common case, occasionally 2-3 on a hash-collision retry
+  // or a rejected response_format — so this total is a "how many reviews can I realistically get
+  // today" figure, not a literal request count, and deliberately phrased as "up to" rather than
+  // an exact promise.
+  const knownRemaining = rows.filter((r) => r.remaining !== null);
+  const totalReviewsLeft =
+    knownRemaining.length > 0 ? knownRemaining.reduce((sum, r) => sum + (r.remaining ?? 0), 0) : null;
+
   return (
     <div className="space-y-3">
       {rows.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">AI generation capacity today</CardTitle>
+            <CardTitle className="text-base">
+              {totalReviewsLeft !== null
+                ? `Up to ~${totalReviewsLeft.toLocaleString()} AI-generated reviews left today`
+                : "AI generation capacity today"}
+            </CardTitle>
             <CardDescription>
-              Live limits reported by each provider. OpenRouter only reports its real numbers once
-              you&apos;ve actually hit the limit — until then its figure is an estimate based on
-              requests this app has made.
+              Roughly one review per AI request, so this is an estimate, not an exact count.
+              OpenRouter only reports its real remaining count once you&apos;ve actually hit its
+              limit — until then its figure below is a best-effort estimate from requests this app
+              has made. Once every provider here is exhausted, new reviews fall back to the
+              built-in phrase-bank generator instead of failing.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -145,9 +159,11 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{row.label}</span>
                     <span className="text-muted-foreground">
-                      {row.remaining !== null ? row.remaining.toLocaleString() : "?"} /{" "}
-                      {row.limit !== null ? row.limit.toLocaleString() : "?"} remaining today
-                      {row.isEstimate ? " (estimate)" : ""}
+                      {row.remaining !== null
+                        ? `~${row.remaining.toLocaleString()} reviews left today`
+                        : "? reviews left today"}
+                      {row.limit !== null ? ` (${row.limit.toLocaleString()}/day limit)` : ""}
+                      {row.isEstimate ? " — estimate" : ""}
                     </span>
                   </div>
                   {percentUsed !== null && <Progress value={percentUsed} />}
