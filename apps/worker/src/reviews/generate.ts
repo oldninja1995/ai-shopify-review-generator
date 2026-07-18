@@ -14,6 +14,7 @@ import { analyzeProductAudienceFromImage } from "./vision-audience.js";
 import { hashReviewContent } from "./content-hash.js";
 import { getOrCreateReviewer } from "./reviewer-pool.js";
 import { env } from "../env.js";
+import { logSystemEvent } from "../logging.js";
 
 const MAX_HASH_RETRIES = 2;
 const MAX_REVIEW_AGE_DAYS = 180;
@@ -44,6 +45,10 @@ type ProduceReviewParams = {
   /** Tried in order — e.g. OpenRouter first, then Groq once every OpenRouter model fails
    * (typically its shared free-tier daily cap being exhausted). */
   ai: AiProviderConfig[];
+  /** Called (at most once per generateReviewsForProduct call — see the caller) when every
+   * configured provider failed and this review fell back to the phrase bank, so the dashboard can
+   * surface that AI generation is currently degraded. */
+  onAiFallback?: (error: unknown) => void;
   /** Set when the reviewer's own gender doesn't match the product's detected audience. */
   giftRecipient?: string;
 };
@@ -51,7 +56,7 @@ type ProduceReviewParams = {
 /** Tries real AI generation first when configured; falls back to the phrase-bank assembler on any
  * failure (missing/invalid key, rate limit, network error) so a job never hard-fails over this. */
 async function produceReview(params: ProduceReviewParams): Promise<AssembledReview> {
-  const { ai, productTitle, reviewer, ...assembleParams } = params;
+  const { ai, productTitle, reviewer, onAiFallback, ...assembleParams } = params;
 
   if (ai.length > 0) {
     try {
@@ -67,6 +72,7 @@ async function produceReview(params: ProduceReviewParams): Promise<AssembledRevi
       return { title, content, comboKey: `ai:${hashReviewContent(content)}` };
     } catch (error) {
       console.error(`[review-generation] AI generation failed for all models, falling back to phrase bank:`, error);
+      onAiFallback?.(error);
     }
   }
 
@@ -183,6 +189,25 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     });
   }
 
+  // Surfaces AI-provider exhaustion on the dashboard (Logs page) instead of it only ever showing
+  // up as a console.error — logged at most once per product per job, since a full batch can
+  // trigger this dozens of times and flooding the log would bury everything else.
+  let aiFallbackWarned = false;
+  function warnAiFallbackOnce(error: unknown) {
+    if (aiFallbackWarned || ai.length === 0) return;
+    aiFallbackWarned = true;
+    void logSystemEvent(
+      "WARN",
+      `AI review generation fell back to the phrase-bank generator for "${product.title}" — every configured provider (${
+        openRouterAi ? "OpenRouter" : ""
+      }${openRouterAi && groqAi ? " + " : ""}${groqAi ? "Groq" : ""}) failed, likely rate-limited.`,
+      {
+        userId: product.store.userId,
+        metadata: { productId, error: error instanceof Error ? error.message : String(error) },
+      },
+    );
+  }
+
   // Phase 2: the actual slow part (AI network calls) runs in parallel across the whole batch —
   // this is what lets worker concurrency translate into real per-product throughput instead of
   // each product's reviews queueing up one at a time behind each other. usedHashes/usedCombos are
@@ -209,6 +234,7 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           reviewer: reviewerPersona,
           excludeCombos: usedCombos,
           ai,
+          onAiFallback: warnAiFallbackOnce,
           giftRecipient,
         });
         let hash = hashReviewContent(produced.content);
