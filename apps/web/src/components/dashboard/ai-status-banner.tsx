@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma, findAiSettingsSafe } from "@ai-shopify/db";
 import { GROQ_MODEL_OPTIONS } from "@ai-shopify/shared";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 // How far back to look for an AI-fallback warning before considering it stale — generation runs
 // happen in bursts (bulk jobs, individual requests), not continuously, so this is a "still likely
@@ -133,26 +134,33 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
               requests this app has made.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {rows.map((row) => (
-              <div key={row.label} className="flex flex-col gap-0.5 rounded-lg border p-3 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{row.label}</span>
-                  <span className="text-muted-foreground">
-                    {row.remaining !== null ? row.remaining.toLocaleString() : "?"} /{" "}
-                    {row.limit !== null ? row.limit.toLocaleString() : "?"} remaining today
-                    {row.isEstimate ? " (estimate)" : ""}
-                  </span>
+          <CardContent className="space-y-3">
+            {rows.map((row) => {
+              const percentUsed =
+                row.limit && row.limit > 0 && row.remaining !== null
+                  ? Math.min(100, Math.max(0, ((row.limit - row.remaining) / row.limit) * 100))
+                  : null;
+              return (
+                <div key={row.label} className="flex flex-col gap-1.5 rounded-lg border p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{row.label}</span>
+                    <span className="text-muted-foreground">
+                      {row.remaining !== null ? row.remaining.toLocaleString() : "?"} /{" "}
+                      {row.limit !== null ? row.limit.toLocaleString() : "?"} remaining today
+                      {row.isEstimate ? " (estimate)" : ""}
+                    </span>
+                  </div>
+                  {percentUsed !== null && <Progress value={percentUsed} />}
+                  {row.resetAt && <span className="text-xs text-muted-foreground">{formatResetAt(row.resetAt)}</span>}
+                  {row.remaining === 0 && (
+                    <span className="text-xs font-medium text-destructive">
+                      Exhausted — new reviews will use the phrase-bank generator until this resets{" "}
+                      {row.remaining === 0 && row.isEstimate ? "(or you add OpenRouter credits)" : ""}.
+                    </span>
+                  )}
                 </div>
-                {row.resetAt && <span className="text-xs text-muted-foreground">{formatResetAt(row.resetAt)}</span>}
-                {row.remaining === 0 && (
-                  <span className="text-xs font-medium text-destructive">
-                    Exhausted — new reviews will use the phrase-bank generator until this resets{" "}
-                    {row.remaining === 0 && row.isEstimate ? "(or you add OpenRouter credits)" : ""}.
-                  </span>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}
