@@ -1,4 +1,4 @@
-import { prisma } from "./index.js";
+import { prisma } from "./client";
 
 /** Full AiSettings row, but Groq fields are guaranteed present even if their migration hasn't
  * run against this database yet — in that case they come back as empty/disabled rather than
