@@ -9,7 +9,7 @@ import {
   type ReviewLength,
 } from "@ai-shopify/shared";
 import { assembleReview, type AssembledReview } from "./assemble-review.js";
-import { generateReviewWithAI } from "./ai-generate.js";
+import { generateReviewWithAI, type AiProviderConfig } from "./ai-generate.js";
 import { analyzeProductAudienceFromImage } from "./vision-audience.js";
 import { hashReviewContent } from "./content-hash.js";
 import { getOrCreateReviewer } from "./reviewer-pool.js";
@@ -27,8 +27,6 @@ function randomPastDate(): Date {
   return new Date(Date.now() - msAgo);
 }
 
-type AiConfig = { apiKey: string; models: string[] };
-
 type ProduceReviewParams = {
   productType: string;
   rating: number;
@@ -43,7 +41,9 @@ type ProduceReviewParams = {
   };
   productTitle: string;
   excludeCombos: Set<string>;
-  ai?: AiConfig;
+  /** Tried in order — e.g. OpenRouter first, then Groq once every OpenRouter model fails
+   * (typically its shared free-tier daily cap being exhausted). */
+  ai: AiProviderConfig[];
   /** Set when the reviewer's own gender doesn't match the product's detected audience. */
   giftRecipient?: string;
 };
@@ -53,9 +53,9 @@ type ProduceReviewParams = {
 async function produceReview(params: ProduceReviewParams): Promise<AssembledReview> {
   const { ai, productTitle, reviewer, ...assembleParams } = params;
 
-  if (ai) {
+  if (ai.length > 0) {
     try {
-      const { title, content } = await generateReviewWithAI(ai.apiKey, ai.models, {
+      const { title, content } = await generateReviewWithAI(ai, {
         productTitle,
         productType: assembleParams.productType,
         brand: assembleParams.brand,
@@ -93,13 +93,27 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     : undefined;
 
   const aiSettings = product.store.aiSettings;
-  const ai: AiConfig | undefined =
+  const openRouterAi: AiProviderConfig | undefined =
     aiSettings?.enabled && aiSettings.apiKeyEncrypted && aiSettings.models.length > 0
       ? {
+          baseUrl: "https://openrouter.ai/api/v1",
           apiKey: decryptSecret(aiSettings.apiKeyEncrypted, env.ENCRYPTION_KEY),
           models: aiSettings.models,
         }
       : undefined;
+  // Fallback provider, tried only once every OpenRouter model above has failed — separate
+  // account/quota from OpenRouter's shared free-tier daily cap.
+  const groqAi: AiProviderConfig | undefined =
+    aiSettings?.enabled && aiSettings.groqApiKeyEncrypted && aiSettings.groqModels.length > 0
+      ? {
+          baseUrl: "https://api.groq.com/openai/v1",
+          apiKey: decryptSecret(aiSettings.groqApiKeyEncrypted, env.ENCRYPTION_KEY),
+          models: aiSettings.groqModels,
+        }
+      : undefined;
+  const ai: AiProviderConfig[] = [openRouterAi, groqAi].filter(
+    (config): config is AiProviderConfig => Boolean(config),
+  );
 
   const existingReviews = await prisma.generatedReview.findMany({
     where: { productId },
@@ -124,9 +138,9 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   // is cached, so a later run can still retry it once it's enabled/AI/images are available.
   let audience = product.detectedAudience ?? detectAudienceGender(product.title, effectiveProductType);
   const primaryImage = product.images[0];
-  if (!product.detectedAudience && ai && aiSettings?.visionAudienceEnabled && primaryImage) {
+  if (!product.detectedAudience && openRouterAi && aiSettings?.visionAudienceEnabled && primaryImage) {
     try {
-      const visionAudience = await analyzeProductAudienceFromImage(ai.apiKey, primaryImage.url);
+      const visionAudience = await analyzeProductAudienceFromImage(openRouterAi.apiKey, primaryImage.url);
       if (visionAudience) {
         audience = visionAudience;
         await prisma.$transaction([

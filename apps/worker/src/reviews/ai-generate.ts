@@ -211,15 +211,20 @@ function deriveTitleFromContent(content: string): string {
   return words || "Review";
 }
 
-/** Calls OpenRouter's chat-completions API with one specific model. Throws on any failure or
- * unusable output — callers move on to the next configured model. */
-async function callOpenRouter(
+/** Every configured provider (OpenRouter, Groq, ...) speaks this same OpenAI-compatible
+ * chat-completions shape — only the base URL and API key differ. */
+export type AiProviderConfig = { baseUrl: string; apiKey: string; models: string[] };
+
+/** Calls an OpenAI-compatible chat-completions endpoint with one specific model. Throws on any
+ * failure or unusable output — callers move on to the next model/provider. */
+async function callChatCompletions(
+  baseUrl: string,
   apiKey: string,
   model: string,
   prompt: string,
   useJsonMode: boolean,
 ): Promise<Response> {
-  return fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
+  return fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -236,29 +241,30 @@ async function callOpenRouter(
 }
 
 async function generateReviewWithModel(
+  baseUrl: string,
   apiKey: string,
   model: string,
   params: Omit<AiReviewParams, "apiKey">,
 ): Promise<{ title: string; content: string }> {
   const prompt = buildPrompt(params);
-  let response = await callOpenRouter(apiKey, model, prompt, true);
+  let response = await callChatCompletions(baseUrl, apiKey, model, prompt, true);
 
   // Some models (especially free/small ones) reject the response_format parameter — retry
   // without it rather than treating that as a hard failure for this model.
   if (!response.ok) {
-    response = await callOpenRouter(apiKey, model, prompt, false);
+    response = await callChatCompletions(baseUrl, apiKey, model, prompt, false);
   }
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
-    throw new Error(`OpenRouter request failed for ${model}: ${response.status} ${errorBody}`);
+    throw new Error(`Request failed for ${model}: ${response.status} ${errorBody}`);
   }
 
   const data = (await response.json()) as {
     choices?: { message?: { content?: string } }[];
   };
   const raw = data.choices?.[0]?.message?.content?.trim();
-  if (!raw) throw new Error(`OpenRouter returned no content for ${model}`);
+  if (!raw) throw new Error(`No content returned for ${model}`);
 
   const jsonReview = extractJsonReview(raw);
   if (jsonReview) return jsonReview;
@@ -281,21 +287,24 @@ function shuffled<T>(items: T[]): T[] {
   return result;
 }
 
-/** Picks a random model from the store's configured list first (for variety across reviews and
- * to spread load across each free model's rate limit), then falls back through the rest in random
- * order on failure. Throws only once every model has failed — callers then fall back to the
- * phrase-bank generator so a job never hard-fails over this. */
+/** Tries each configured provider in order (e.g. OpenRouter first, then Groq as a fallback once
+ * OpenRouter's shared free-tier quota is exhausted) — within a provider, picks a random model
+ * first (for variety across reviews and to spread load across each free model's own rate limit),
+ * then falls back through the rest of that provider's models in random order. Throws only once
+ * every model on every provider has failed — callers then fall back to the phrase-bank generator
+ * so a job never hard-fails over this. */
 export async function generateReviewWithAI(
-  apiKey: string,
-  models: string[],
+  providers: AiProviderConfig[],
   params: Omit<AiReviewParams, "apiKey">,
 ): Promise<{ title: string; content: string }> {
   const errors: string[] = [];
-  for (const model of shuffled(models)) {
-    try {
-      return await generateReviewWithModel(apiKey, model, params);
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+  for (const provider of providers) {
+    for (const model of shuffled(provider.models)) {
+      try {
+        return await generateReviewWithModel(provider.baseUrl, provider.apiKey, model, params);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
     }
   }
   throw new Error(`All configured AI models failed: ${errors.join(" | ")}`);

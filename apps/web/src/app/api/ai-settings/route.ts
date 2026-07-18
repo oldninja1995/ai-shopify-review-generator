@@ -24,7 +24,14 @@ export async function GET() {
   });
   if (!store) {
     return NextResponse.json(
-      apiSuccess({ enabled: false, models: [], hasApiKey: false, visionAudienceEnabled: false }),
+      apiSuccess({
+        enabled: false,
+        models: [],
+        hasApiKey: false,
+        visionAudienceEnabled: false,
+        groqModels: [],
+        hasGroqApiKey: false,
+      }),
     );
   }
 
@@ -35,6 +42,8 @@ export async function GET() {
       models: aiSettings?.models ?? [],
       hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
       visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,
+      groqModels: aiSettings?.groqModels ?? [],
+      hasGroqApiKey: Boolean(aiSettings?.groqApiKeyEncrypted),
     }),
   );
 }
@@ -65,7 +74,7 @@ export async function PUT(request: Request) {
       { status: 400 },
     );
   }
-  const { apiKey, models, enabled, visionAudienceEnabled } = parsed.data;
+  const { apiKey, models, enabled, visionAudienceEnabled, groqApiKey, groqModels } = parsed.data;
 
   const existing = await prisma.aiSettings.findUnique({ where: { storeId: store.id } });
   if (enabled && !apiKey && !existing?.apiKeyEncrypted) {
@@ -76,11 +85,22 @@ export async function PUT(request: Request) {
   }
 
   const apiKeyEncrypted = apiKey ? encryptSecret(apiKey, requireEncryptionKey()) : existing?.apiKeyEncrypted;
+  const groqApiKeyEncrypted = groqApiKey
+    ? encryptSecret(groqApiKey, requireEncryptionKey())
+    : existing?.groqApiKeyEncrypted;
 
   const aiSettings = await prisma.aiSettings.upsert({
     where: { storeId: store.id },
-    create: { storeId: store.id, apiKeyEncrypted, models, enabled, visionAudienceEnabled },
-    update: { apiKeyEncrypted, models, enabled, visionAudienceEnabled },
+    create: {
+      storeId: store.id,
+      apiKeyEncrypted,
+      models,
+      enabled,
+      visionAudienceEnabled,
+      groqApiKeyEncrypted,
+      groqModels,
+    },
+    update: { apiKeyEncrypted, models, enabled, visionAudienceEnabled, groqApiKeyEncrypted, groqModels },
   });
 
   return NextResponse.json(
@@ -89,6 +109,8 @@ export async function PUT(request: Request) {
       models: aiSettings.models,
       hasApiKey: Boolean(aiSettings.apiKeyEncrypted),
       visionAudienceEnabled: aiSettings.visionAudienceEnabled,
+      groqModels: aiSettings.groqModels,
+      hasGroqApiKey: Boolean(aiSettings.groqApiKeyEncrypted),
     }),
   );
 }

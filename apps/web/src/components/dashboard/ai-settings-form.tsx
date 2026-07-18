@@ -24,14 +24,18 @@ export type AiSettingsInitialValues = {
   models: string[];
   hasApiKey: boolean;
   visionAudienceEnabled: boolean;
+  groqModels: string[];
+  hasGroqApiKey: boolean;
 };
 
 export function AiSettingsForm({
   initialValues,
   models,
+  groqModelOptions,
 }: {
   initialValues: AiSettingsInitialValues;
   models: OpenRouterModelOption[];
+  groqModelOptions: OpenRouterModelOption[];
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initialValues.enabled);
@@ -40,11 +44,16 @@ export function AiSettingsForm({
   const [visionAudienceEnabled, setVisionAudienceEnabled] = useState(
     initialValues.visionAudienceEnabled,
   );
+  const [groqSelected, setGroqSelected] = useState<string[]>(initialValues.groqModels);
+  const [groqApiKey, setGroqApiKey] = useState("");
   const [saving, setSaving] = useState(false);
 
   const freeModels = models.filter((m) => m.isFree && !selected.includes(m.id));
   const paidModels = models.filter((m) => !m.isFree && !selected.includes(m.id));
   const nameFor = (id: string) => models.find((m) => m.id === id)?.name ?? id;
+
+  const availableGroqModels = groqModelOptions.filter((m) => !groqSelected.includes(m.id));
+  const groqNameFor = (id: string) => groqModelOptions.find((m) => m.id === id)?.name ?? id;
 
   function addModel(id: string) {
     setSelected((prev) => (prev.includes(id) ? prev : [...prev, id]));
@@ -62,6 +71,13 @@ export function AiSettingsForm({
     });
   }
 
+  function addGroqModel(id: string) {
+    setGroqSelected((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }
+  function removeGroqModel(id: string) {
+    setGroqSelected((prev) => prev.filter((m) => m !== id));
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (selected.length === 0) {
@@ -74,6 +90,8 @@ export function AiSettingsForm({
       models: selected,
       enabled,
       visionAudienceEnabled,
+      groqApiKey: groqApiKey.trim() ? groqApiKey.trim() : undefined,
+      groqModels: groqSelected,
     });
     setSaving(false);
     if (!result.success) {
@@ -82,6 +100,7 @@ export function AiSettingsForm({
     }
     toast.success("AI settings saved");
     setApiKey("");
+    setGroqApiKey("");
     router.refresh();
   }
 
@@ -222,6 +241,66 @@ export function AiSettingsForm({
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={initialValues.hasApiKey ? "•••••••• (saved — leave blank to keep)" : "sk-or-..."}
             />
+          </div>
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <Label>Groq fallback (optional)</Label>
+            <p className="text-sm text-muted-foreground">
+              Tried only after every OpenRouter model above has failed — useful when OpenRouter&apos;s
+              shared free-tier daily limit is exhausted, since Groq draws from a separate account
+              and quota. Requires a free Groq API key (console.groq.com).
+            </p>
+
+            {groqSelected.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                {groqSelected.map((id) => (
+                  <div
+                    key={id}
+                    className="flex items-center justify-between gap-2 rounded-lg border p-2 text-sm"
+                  >
+                    <span>{groqNameFor(id)}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => removeGroqModel(id)}
+                      aria-label="Remove"
+                    >
+                      <X />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {availableGroqModels.length > 0 && (
+              <div className="space-y-1 rounded-lg border p-2">
+                {availableGroqModels.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => addGroqModel(m.id)}
+                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50"
+                  >
+                    <span>{m.name}</span>
+                    <Plus className="size-4 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-2 pt-1">
+              <Label htmlFor="groq-api-key">Groq API key</Label>
+              <Input
+                id="groq-api-key"
+                type="password"
+                value={groqApiKey}
+                onChange={(e) => setGroqApiKey(e.target.value)}
+                placeholder={
+                  initialValues.hasGroqApiKey ? "•••••••• (saved — leave blank to keep)" : "gsk_..."
+                }
+              />
+            </div>
           </div>
 
           <div className="space-y-2 rounded-lg border p-3">
