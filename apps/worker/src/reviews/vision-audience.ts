@@ -1,4 +1,5 @@
 import type { AudienceGender } from "@ai-shopify/shared";
+import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
 
 type OpenRouterModel = {
   id: string;
@@ -24,7 +25,7 @@ async function getVisionCapableModels(): Promise<string[]> {
     return cachedVisionModels.models;
   }
 
-  const response = await fetch("https://openrouter.ai/api/v1/models").catch(() => null);
+  const response = await fetchWithTimeout("https://openrouter.ai/api/v1/models", {}, 15_000).catch(() => null);
   if (!response || !response.ok) return cachedVisionModels?.models ?? [];
 
   const body = (await response.json()) as { data?: OpenRouterModel[] };
@@ -64,7 +65,7 @@ function parseAudience(raw: string): AudienceGender | null {
 }
 
 async function tryModel(apiKey: string, model: string, imageUrl: string): Promise<AudienceGender | null> {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

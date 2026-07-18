@@ -1,4 +1,5 @@
 import { isUsableUspPhrase, type ReviewLength } from "@ai-shopify/shared";
+import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
 
 // Kept deliberately short across all three tiers — real customer reviews are almost always brief,
 // and even the "long" tier should read as a slightly fuller quick review, not a paragraph.
@@ -218,7 +219,7 @@ async function callOpenRouter(
   prompt: string,
   useJsonMode: boolean,
 ): Promise<Response> {
-  return fetch("https://openrouter.ai/api/v1/chat/completions", {
+  return fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
