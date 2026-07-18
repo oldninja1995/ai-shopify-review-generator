@@ -211,15 +211,105 @@ function deriveTitleFromContent(content: string): string {
   return words || "Review";
 }
 
-/** Calls OpenRouter's chat-completions API with one specific model. Throws on any failure or
- * unusable output — callers move on to the next configured model. */
-async function callOpenRouter(
+export type AiProviderName = "openrouter" | "groq";
+
+/** Every configured provider (OpenRouter, Groq, ...) speaks this same OpenAI-compatible
+ * chat-completions shape — only the base URL and API key differ. */
+export type AiProviderConfig = { name: AiProviderName; baseUrl: string; apiKey: string; models: string[] };
+
+/** A live rate-limit reading for one provider+model, as of the most recent call. `null` fields
+ * mean that particular figure wasn't reported (e.g. OpenRouter never reports token limits, and
+ * only reports anything at all once you're actually rate-limited). */
+export type ProviderQuotaSnapshot = {
+  limitRequests: number | null;
+  remainingRequests: number | null;
+  requestsResetAt: Date | null;
+  limitTokens: number | null;
+  remainingTokens: number | null;
+  tokensResetAt: Date | null;
+};
+
+/** Reported once per call attempt (success or failure) so callers can track usage over time —
+ * `snapshot` is null when the provider gave back no rate-limit info at all for this call (always
+ * true for OpenRouter on success, since it only reports anything once actually rate-limited). */
+export type ProviderQuotaEvent = { provider: AiProviderName; model: string; snapshot: ProviderQuotaSnapshot | null };
+
+/** Parses a Groq-style duration string ("2m59.56s", "7.66s") into an absolute Date. */
+function parseDurationToDate(duration: string | null): Date | null {
+  if (!duration) return null;
+  const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?$/.exec(duration.trim());
+  if (!match) return null;
+  const [, h, m, s] = match;
+  const ms = (Number(h ?? 0) * 3600 + Number(m ?? 0) * 60 + Number(s ?? 0)) * 1000;
+  return new Date(Date.now() + ms);
+}
+
+function numOrNull(value: string | null): number | null {
+  if (value === null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Groq reports rate-limit headers on every response, success or failure. OpenRouter only ever
+ * reports anything on a 429 for its shared free-tier daily cap — and even then, as of this
+ * writing it shows up embedded in the JSON error body (`error.metadata.headers`) rather than as
+ * real HTTP response headers, so both are checked. */
+function parseQuotaSnapshot(
+  provider: AiProviderName,
+  response: Response,
+  errorBody: string | null,
+): ProviderQuotaSnapshot | null {
+  if (provider === "groq") {
+    const limitRequests = numOrNull(response.headers.get("x-ratelimit-limit-requests"));
+    if (limitRequests === null) return null;
+    return {
+      limitRequests,
+      remainingRequests: numOrNull(response.headers.get("x-ratelimit-remaining-requests")),
+      requestsResetAt: parseDurationToDate(response.headers.get("x-ratelimit-reset-requests")),
+      limitTokens: numOrNull(response.headers.get("x-ratelimit-limit-tokens")),
+      remainingTokens: numOrNull(response.headers.get("x-ratelimit-remaining-tokens")),
+      tokensResetAt: parseDurationToDate(response.headers.get("x-ratelimit-reset-tokens")),
+    };
+  }
+
+  let limit = response.headers.get("x-ratelimit-limit");
+  let remaining = response.headers.get("x-ratelimit-remaining");
+  let reset = response.headers.get("x-ratelimit-reset");
+  if (!limit && errorBody) {
+    try {
+      const parsed = JSON.parse(errorBody) as {
+        error?: { metadata?: { headers?: Record<string, string> } };
+      };
+      const headers = parsed.error?.metadata?.headers;
+      limit = headers?.["X-RateLimit-Limit"] ?? null;
+      remaining = headers?.["X-RateLimit-Remaining"] ?? null;
+      reset = headers?.["X-RateLimit-Reset"] ?? null;
+    } catch {
+      // Not JSON — e.g. a Cloudflare HTML block page. Nothing to extract.
+    }
+  }
+  const limitRequests = numOrNull(limit);
+  if (limitRequests === null) return null;
+  return {
+    limitRequests,
+    remainingRequests: numOrNull(remaining),
+    requestsResetAt: reset ? new Date(Number(reset)) : null,
+    limitTokens: null,
+    remainingTokens: null,
+    tokensResetAt: null,
+  };
+}
+
+/** Calls an OpenAI-compatible chat-completions endpoint with one specific model. Throws on any
+ * failure or unusable output — callers move on to the next model/provider. */
+async function callChatCompletions(
+  baseUrl: string,
   apiKey: string,
   model: string,
   prompt: string,
   useJsonMode: boolean,
 ): Promise<Response> {
-  return fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
+  return fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -236,29 +326,39 @@ async function callOpenRouter(
 }
 
 async function generateReviewWithModel(
+  provider: AiProviderName,
+  baseUrl: string,
   apiKey: string,
   model: string,
   params: Omit<AiReviewParams, "apiKey">,
+  onQuotaInfo?: (event: ProviderQuotaEvent) => void,
 ): Promise<{ title: string; content: string }> {
   const prompt = buildPrompt(params);
-  let response = await callOpenRouter(apiKey, model, prompt, true);
+  let response = await callChatCompletions(baseUrl, apiKey, model, prompt, true);
 
   // Some models (especially free/small ones) reject the response_format parameter — retry
   // without it rather than treating that as a hard failure for this model.
   if (!response.ok) {
-    response = await callOpenRouter(apiKey, model, prompt, false);
+    response = await callChatCompletions(baseUrl, apiKey, model, prompt, false);
   }
+
+  // OpenRouter's cap is account-wide, not per-model, so every OpenRouter event is tagged with a
+  // fixed "account" model key rather than whichever specific model happened to be tried.
+  const quotaModel = provider === "openrouter" ? "account" : model;
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
-    throw new Error(`OpenRouter request failed for ${model}: ${response.status} ${errorBody}`);
+    onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, errorBody) });
+    throw new Error(`Request failed for ${model}: ${response.status} ${errorBody}`);
   }
+
+  onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, null) });
 
   const data = (await response.json()) as {
     choices?: { message?: { content?: string } }[];
   };
   const raw = data.choices?.[0]?.message?.content?.trim();
-  if (!raw) throw new Error(`OpenRouter returned no content for ${model}`);
+  if (!raw) throw new Error(`No content returned for ${model}`);
 
   const jsonReview = extractJsonReview(raw);
   if (jsonReview) return jsonReview;
@@ -281,21 +381,25 @@ function shuffled<T>(items: T[]): T[] {
   return result;
 }
 
-/** Picks a random model from the store's configured list first (for variety across reviews and
- * to spread load across each free model's rate limit), then falls back through the rest in random
- * order on failure. Throws only once every model has failed — callers then fall back to the
- * phrase-bank generator so a job never hard-fails over this. */
+/** Tries each configured provider in order (e.g. OpenRouter first, then Groq as a fallback once
+ * OpenRouter's shared free-tier quota is exhausted) — within a provider, picks a random model
+ * first (for variety across reviews and to spread load across each free model's own rate limit),
+ * then falls back through the rest of that provider's models in random order. Throws only once
+ * every model on every provider has failed — callers then fall back to the phrase-bank generator
+ * so a job never hard-fails over this. */
 export async function generateReviewWithAI(
-  apiKey: string,
-  models: string[],
+  providers: AiProviderConfig[],
   params: Omit<AiReviewParams, "apiKey">,
+  onQuotaInfo?: (event: ProviderQuotaEvent) => void,
 ): Promise<{ title: string; content: string }> {
   const errors: string[] = [];
-  for (const model of shuffled(models)) {
-    try {
-      return await generateReviewWithModel(apiKey, model, params);
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+  for (const provider of providers) {
+    for (const model of shuffled(provider.models)) {
+      try {
+        return await generateReviewWithModel(provider.name, provider.baseUrl, provider.apiKey, model, params, onQuotaInfo);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
     }
   }
   throw new Error(`All configured AI models failed: ${errors.join(" | ")}`);

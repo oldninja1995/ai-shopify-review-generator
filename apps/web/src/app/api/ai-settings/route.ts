@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@ai-shopify/db";
+import { prisma, findAiSettingsSafe } from "@ai-shopify/db";
 import { aiSettingsSchema, apiFailure, apiSuccess, encryptSecret } from "@ai-shopify/shared";
 import { getCurrentUser } from "@/lib/auth/session";
 import { zodErrorToFieldErrors } from "@/lib/validation";
@@ -24,17 +24,26 @@ export async function GET() {
   });
   if (!store) {
     return NextResponse.json(
-      apiSuccess({ enabled: false, models: [], hasApiKey: false, visionAudienceEnabled: false }),
+      apiSuccess({
+        enabled: false,
+        models: [],
+        hasApiKey: false,
+        visionAudienceEnabled: false,
+        groqModels: [],
+        hasGroqApiKey: false,
+      }),
     );
   }
 
-  const aiSettings = await prisma.aiSettings.findUnique({ where: { storeId: store.id } });
+  const aiSettings = await findAiSettingsSafe(store.id);
   return NextResponse.json(
     apiSuccess({
       enabled: aiSettings?.enabled ?? false,
       models: aiSettings?.models ?? [],
       hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
       visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,
+      groqModels: aiSettings?.groqModels ?? [],
+      hasGroqApiKey: Boolean(aiSettings?.groqApiKeyEncrypted),
     }),
   );
 }
@@ -65,30 +74,75 @@ export async function PUT(request: Request) {
       { status: 400 },
     );
   }
-  const { apiKey, models, enabled, visionAudienceEnabled } = parsed.data;
+  const { apiKey, models, enabled, visionAudienceEnabled, groqApiKey, groqModels } = parsed.data;
 
-  const existing = await prisma.aiSettings.findUnique({ where: { storeId: store.id } });
+  const existing = await findAiSettingsSafe(store.id);
   if (enabled && !apiKey && !existing?.apiKeyEncrypted) {
     return NextResponse.json(
       apiFailure("Enter an API key before enabling AI generation", { code: "MISSING_API_KEY" }),
       { status: 400 },
     );
   }
+  if ((groqApiKey || groqModels.length > 0) && existing && !existing.groqColumnsAvailable) {
+    return NextResponse.json(
+      apiFailure("Groq support isn't available on this deployment yet — try again shortly.", {
+        code: "GROQ_NOT_MIGRATED",
+      }),
+      { status: 503 },
+    );
+  }
 
   const apiKeyEncrypted = apiKey ? encryptSecret(apiKey, requireEncryptionKey()) : existing?.apiKeyEncrypted;
+  const groqApiKeyEncrypted = groqApiKey
+    ? encryptSecret(groqApiKey, requireEncryptionKey())
+    : existing?.groqApiKeyEncrypted;
 
-  const aiSettings = await prisma.aiSettings.upsert({
-    where: { storeId: store.id },
-    create: { storeId: store.id, apiKeyEncrypted, models, enabled, visionAudienceEnabled },
-    update: { apiKeyEncrypted, models, enabled, visionAudienceEnabled },
-  });
+  const coreData = { storeId: store.id, apiKeyEncrypted, models, enabled, visionAudienceEnabled };
+  const groqData = { groqApiKeyEncrypted, groqModels };
+  // Explicit `select` matters here, not just the create/update payload — Prisma returns every
+  // scalar model field by default regardless of what was written, so without this the "core-only"
+  // fallback would still try to read back the (possibly nonexistent) Groq columns and throw anyway.
+  const coreSelect = {
+    enabled: true,
+    models: true,
+    apiKeyEncrypted: true,
+    visionAudienceEnabled: true,
+  } as const;
 
-  return NextResponse.json(
-    apiSuccess({
-      enabled: aiSettings.enabled,
-      models: aiSettings.models,
-      hasApiKey: Boolean(aiSettings.apiKeyEncrypted),
-      visionAudienceEnabled: aiSettings.visionAudienceEnabled,
-    }),
-  );
+  let result: { enabled: boolean; models: string[]; hasApiKey: boolean; visionAudienceEnabled: boolean; groqModels: string[]; hasGroqApiKey: boolean };
+  if (existing?.groqColumnsAvailable === false) {
+    const aiSettings = await prisma.aiSettings.upsert({
+      where: { storeId: store.id },
+      create: coreData,
+      update: coreData,
+      select: coreSelect,
+    });
+    result = { ...aiSettings, hasApiKey: Boolean(aiSettings.apiKeyEncrypted), groqModels: [], hasGroqApiKey: false };
+  } else {
+    try {
+      const aiSettings = await prisma.aiSettings.upsert({
+        where: { storeId: store.id },
+        create: { ...coreData, ...groqData },
+        update: { ...coreData, ...groqData },
+      });
+      result = {
+        ...aiSettings,
+        hasApiKey: Boolean(aiSettings.apiKeyEncrypted),
+        hasGroqApiKey: Boolean(aiSettings.groqApiKeyEncrypted),
+      };
+    } catch {
+      // Covers the one case findAiSettingsSafe can't detect up front: no row existed yet for this
+      // store (so `existing` was null) and the Groq columns also aren't migrated into this
+      // database yet.
+      const aiSettings = await prisma.aiSettings.upsert({
+        where: { storeId: store.id },
+        create: coreData,
+        update: coreData,
+        select: coreSelect,
+      });
+      result = { ...aiSettings, hasApiKey: Boolean(aiSettings.apiKeyEncrypted), groqModels: [], hasGroqApiKey: false };
+    }
+  }
+
+  return NextResponse.json(apiSuccess(result));
 }

@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
-import { prisma } from "@ai-shopify/db";
+import { prisma, findAiSettingsSafe } from "@ai-shopify/db";
+import { GROQ_MODEL_OPTIONS } from "@ai-shopify/shared";
 import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchOpenRouterModels } from "@/lib/openrouter";
 import { AiSettingsForm } from "@/components/dashboard/ai-settings-form";
+import { AiStatusBanner } from "@/components/dashboard/ai-status-banner";
 
 export default async function AiSettingsPage() {
   const user = await getCurrentUser();
@@ -32,22 +34,25 @@ export default async function AiSettingsPage() {
     );
   }
 
-  const [aiSettings, models] = await Promise.all([
-    prisma.aiSettings.findUnique({ where: { storeId: store.id } }),
-    fetchOpenRouterModels(),
-  ]);
+  const [aiSettings, models] = await Promise.all([findAiSettingsSafe(store.id), fetchOpenRouterModels()]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">AI Generation</h1>
+
+      <AiStatusBanner userId={user.id} />
+
       <AiSettingsForm
         initialValues={{
           enabled: aiSettings?.enabled ?? false,
           models: aiSettings?.models ?? [],
           hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
           visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,
+          groqModels: aiSettings?.groqModels ?? [],
+          hasGroqApiKey: Boolean(aiSettings?.groqApiKeyEncrypted),
         }}
         models={models}
+        groqModelOptions={GROQ_MODEL_OPTIONS}
       />
     </div>
   );
