@@ -372,21 +372,11 @@ async function generateReviewWithModel(
   return { title: deriveTitleFromContent(plainText), content: plainText };
 }
 
-function shuffled<T>(items: T[]): T[] {
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j] as T, result[i] as T];
-  }
-  return result;
-}
-
 /** Tries each configured provider in order (e.g. OpenRouter first, then Groq as a fallback once
- * OpenRouter's shared free-tier quota is exhausted) — within a provider, picks a random model
- * first (for variety across reviews and to spread load across each free model's own rate limit),
- * then falls back through the rest of that provider's models in random order. Throws only once
- * every model on every provider has failed — callers then fall back to the phrase-bank generator
- * so a job never hard-fails over this. */
+ * OpenRouter's shared free-tier quota is exhausted) — within a provider, tries models in the exact
+ * order the user configured them (see the "Fallback order" picker), only moving to the next one
+ * once the current one fails. Throws only once every model on every provider has failed — callers
+ * then fall back to the phrase-bank generator so a job never hard-fails over this. */
 export async function generateReviewWithAI(
   providers: AiProviderConfig[],
   params: Omit<AiReviewParams, "apiKey">,
@@ -394,7 +384,7 @@ export async function generateReviewWithAI(
 ): Promise<{ title: string; content: string }> {
   const errors: string[] = [];
   for (const provider of providers) {
-    for (const model of shuffled(provider.models)) {
+    for (const model of provider.models) {
       try {
         return await generateReviewWithModel(provider.name, provider.baseUrl, provider.apiKey, model, params, onQuotaInfo);
       } catch (error) {
