@@ -59,7 +59,9 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
       where: {
         userId,
         level: "WARN",
-        message: { contains: "fell back to the phrase-bank generator" },
+        // Matches both the phrase-bank-fallback and AI-only-mode-skip warning messages from
+        // generate.ts — they share this phrase regardless of which one fired.
+        message: { contains: "every configured AI provider" },
         createdAt: { gte: new Date(Date.now() - FALLBACK_WARNING_LOOKBACK_MS) },
       },
       orderBy: { createdAt: "desc" },
@@ -68,7 +70,9 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
       where: {
         userId,
         level: "WARN",
-        message: { contains: "fell back to the phrase-bank generator" },
+        // Matches both the phrase-bank-fallback and AI-only-mode-skip warning messages from
+        // generate.ts — they share this phrase regardless of which one fired.
+        message: { contains: "every configured AI provider" },
         createdAt: { gte: new Date(Date.now() - FALLBACK_WARNING_LOOKBACK_MS) },
       },
     }),
@@ -193,7 +197,9 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
                   )}
                   {row.remaining === 0 && !row.hasPaidFallback && (
                     <span className="text-xs font-medium text-destructive">
-                      Exhausted — new reviews will use the phrase-bank generator until this resets{" "}
+                      {aiSettings?.aiOnlyMode
+                        ? "Exhausted — new reviews will be skipped until this resets"
+                        : "Exhausted — new reviews will use the phrase-bank generator until this resets"}{" "}
                       {row.isEstimate ? "(or you add OpenRouter credits)" : ""}.
                     </span>
                   )}
@@ -213,8 +219,10 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
             <CardDescription className="text-amber-900/80 dark:text-amber-200/80">
               Every configured AI provider failed at least once in the last few hours (most
               recently {new Date(recentFallback.createdAt).toLocaleString()}, {fallbackCount} time
-              {fallbackCount === 1 ? "" : "s"} since then) — likely a rate limit. Reviews generated
-              during this time used the phrase-bank generator instead of real AI content.{" "}
+              {fallbackCount === 1 ? "" : "s"} since then) — likely a rate limit.{" "}
+              {aiSettings?.aiOnlyMode
+                ? "Those reviews were skipped instead of generated (AI-only mode is on)."
+                : "Reviews generated during this time used the phrase-bank generator instead of real AI content."}{" "}
               <Link href="/dashboard/logs?level=WARN" className="underline">
                 View details in Logs
               </Link>

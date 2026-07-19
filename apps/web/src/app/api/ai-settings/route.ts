@@ -29,6 +29,7 @@ export async function GET() {
         models: [],
         hasApiKey: false,
         visionAudienceEnabled: false,
+        aiOnlyMode: false,
         groqModels: [],
         hasGroqApiKey: false,
       }),
@@ -42,6 +43,7 @@ export async function GET() {
       models: aiSettings?.models ?? [],
       hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
       visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,
+      aiOnlyMode: aiSettings?.aiOnlyMode ?? false,
       groqModels: aiSettings?.groqModels ?? [],
       hasGroqApiKey: Boolean(aiSettings?.groqApiKeyEncrypted),
     }),
@@ -74,7 +76,7 @@ export async function PUT(request: Request) {
       { status: 400 },
     );
   }
-  const { apiKey, models, enabled, visionAudienceEnabled, groqApiKey, groqModels } = parsed.data;
+  const { apiKey, models, enabled, visionAudienceEnabled, aiOnlyMode, groqApiKey, groqModels } = parsed.data;
 
   const existing = await findAiSettingsSafe(store.id);
   if (enabled && !apiKey && !existing?.apiKeyEncrypted) {
@@ -97,7 +99,7 @@ export async function PUT(request: Request) {
     ? encryptSecret(groqApiKey, requireEncryptionKey())
     : existing?.groqApiKeyEncrypted;
 
-  const coreData = { storeId: store.id, apiKeyEncrypted, models, enabled, visionAudienceEnabled };
+  const coreData = { storeId: store.id, apiKeyEncrypted, models, enabled, visionAudienceEnabled, aiOnlyMode };
   const groqData = { groqApiKeyEncrypted, groqModels };
   // Explicit `select` matters here, not just the create/update payload — Prisma returns every
   // scalar model field by default regardless of what was written, so without this the "core-only"
@@ -107,9 +109,10 @@ export async function PUT(request: Request) {
     models: true,
     apiKeyEncrypted: true,
     visionAudienceEnabled: true,
+    aiOnlyMode: true,
   } as const;
 
-  let result: { enabled: boolean; models: string[]; hasApiKey: boolean; visionAudienceEnabled: boolean; groqModels: string[]; hasGroqApiKey: boolean };
+  let result: { enabled: boolean; models: string[]; hasApiKey: boolean; visionAudienceEnabled: boolean; aiOnlyMode: boolean; groqModels: string[]; hasGroqApiKey: boolean };
   if (existing?.groqColumnsAvailable === false) {
     const aiSettings = await prisma.aiSettings.upsert({
       where: { storeId: store.id },

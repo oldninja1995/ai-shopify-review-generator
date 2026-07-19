@@ -48,6 +48,7 @@ export default async function AiSettingsPage() {
           models: aiSettings?.models ?? [],
           hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
           visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,
+          aiOnlyMode: aiSettings?.aiOnlyMode ?? false,
           groqModels: aiSettings?.groqModels ?? [],
           hasGroqApiKey: Boolean(aiSettings?.groqApiKeyEncrypted),
         }}

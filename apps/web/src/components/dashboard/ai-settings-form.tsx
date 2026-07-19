@@ -24,6 +24,7 @@ export type AiSettingsInitialValues = {
   models: string[];
   hasApiKey: boolean;
   visionAudienceEnabled: boolean;
+  aiOnlyMode: boolean;
   groqModels: string[];
   hasGroqApiKey: boolean;
 };
@@ -44,6 +45,7 @@ export function AiSettingsForm({
   const [visionAudienceEnabled, setVisionAudienceEnabled] = useState(
     initialValues.visionAudienceEnabled,
   );
+  const [aiOnlyMode, setAiOnlyMode] = useState(initialValues.aiOnlyMode);
   const [groqSelected, setGroqSelected] = useState<string[]>(initialValues.groqModels);
   const [groqApiKey, setGroqApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -90,6 +92,7 @@ export function AiSettingsForm({
       models: selected,
       enabled,
       visionAudienceEnabled,
+      aiOnlyMode,
       groqApiKey: groqApiKey.trim() ? groqApiKey.trim() : undefined,
       groqModels: groqSelected,
     });
@@ -327,6 +330,35 @@ export function AiSettingsForm({
                 size="sm"
                 variant={!visionAudienceEnabled ? "default" : "outline"}
                 onClick={() => setVisionAudienceEnabled(false)}
+              >
+                Disabled
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <Label>AI-only mode</Label>
+            <p className="text-sm text-muted-foreground">
+              By default, once every configured AI model/provider above fails or runs out of daily
+              capacity, remaining reviews are still generated using the built-in phrase-bank
+              generator instead of AI. Turn this on to skip those reviews instead — you&apos;ll get
+              fewer reviews than requested when AI capacity runs out, with a warning explaining why,
+              rather than a mix of AI and phrase-bank content.
+            </p>
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={aiOnlyMode ? "default" : "outline"}
+                onClick={() => setAiOnlyMode(true)}
+              >
+                Enabled
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!aiOnlyMode ? "default" : "outline"}
+                onClick={() => setAiOnlyMode(false)}
               >
                 Disabled
               </Button>

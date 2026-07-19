@@ -45,9 +45,12 @@ type ProduceReviewParams = {
   /** Tried in order — e.g. OpenRouter first, then Groq once every OpenRouter model fails
    * (typically its shared free-tier daily cap being exhausted). */
   ai: AiProviderConfig[];
+  /** When every configured AI provider fails, skip the review (produceReview returns null)
+   * instead of falling back to the phrase-bank generator. Off by default (AiSettings.aiOnlyMode). */
+  aiOnlyMode: boolean;
   /** Called (at most once per generateReviewsForProduct call — see the caller) when every
-   * configured provider failed and this review fell back to the phrase bank, so the dashboard can
-   * surface that AI generation is currently degraded. */
+   * configured provider failed, so the dashboard can surface that AI generation is currently
+   * degraded — regardless of whether this review fell back to the phrase bank or was skipped. */
   onAiFallback?: (error: unknown) => void;
   /** Called after every provider call attempt so the dashboard can show live remaining/limit
    * numbers instead of a guess. */
@@ -57,9 +60,10 @@ type ProduceReviewParams = {
 };
 
 /** Tries real AI generation first when configured; falls back to the phrase-bank assembler on any
- * failure (missing/invalid key, rate limit, network error) so a job never hard-fails over this. */
-async function produceReview(params: ProduceReviewParams): Promise<AssembledReview> {
-  const { ai, productTitle, reviewer, onAiFallback, onQuotaInfo, ...assembleParams } = params;
+ * failure (missing/invalid key, rate limit, network error) so a job never hard-fails over this —
+ * unless `aiOnlyMode` is on, in which case a failure returns null (skip this review) instead. */
+async function produceReview(params: ProduceReviewParams): Promise<AssembledReview | null> {
+  const { ai, aiOnlyMode, productTitle, reviewer, onAiFallback, onQuotaInfo, ...assembleParams } = params;
 
   if (ai.length > 0) {
     try {
@@ -78,8 +82,12 @@ async function produceReview(params: ProduceReviewParams): Promise<AssembledRevi
       );
       return { title, content, comboKey: `ai:${hashReviewContent(content)}` };
     } catch (error) {
-      console.error(`[review-generation] AI generation failed for all models, falling back to phrase bank:`, error);
       onAiFallback?.(error);
+      if (aiOnlyMode) {
+        console.error(`[review-generation] AI generation failed for all models, skipping review (AI-only mode):`, error);
+        return null;
+      }
+      console.error(`[review-generation] AI generation failed for all models, falling back to phrase bank:`, error);
     }
   }
 
@@ -132,6 +140,7 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   const ai: AiProviderConfig[] = [openRouterAi, groqAi].filter(
     (config): config is AiProviderConfig => Boolean(config),
   );
+  const aiOnlyMode = aiSettings?.aiOnlyMode ?? false;
 
   // Persists a live snapshot of each provider's rate-limit status so the dashboard can show real
   // remaining/limit numbers. Groq reports this on every call; OpenRouter only reports anything at
@@ -248,22 +257,30 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
 
   // Surfaces AI-provider exhaustion on the dashboard (Logs page) instead of it only ever showing
   // up as a console.error — logged at most once per product per job, since a full batch can
-  // trigger this dozens of times and flooding the log would bury everything else.
+  // trigger this dozens of times and flooding the log would bury everything else. Message wording
+  // branches on aiOnlyMode, but both share the "every configured AI provider" phrase that
+  // ai-status-banner.tsx matches on to show the "degraded" warning regardless of mode.
   let aiFallbackWarned = false;
   function warnAiFallbackOnce(error: unknown) {
     if (aiFallbackWarned || ai.length === 0) return;
     aiFallbackWarned = true;
+    const providerList = `${openRouterAi ? "OpenRouter" : ""}${openRouterAi && groqAi ? " + " : ""}${groqAi ? "Groq" : ""}`;
     void logSystemEvent(
       "WARN",
-      `AI review generation fell back to the phrase-bank generator for "${product.title}" — every configured provider (${
-        openRouterAi ? "OpenRouter" : ""
-      }${openRouterAi && groqAi ? " + " : ""}${groqAi ? "Groq" : ""}) failed, likely rate-limited.`,
+      aiOnlyMode
+        ? `AI review generation was skipped for "${product.title}" (AI-only mode) — every configured AI provider (${providerList}) failed, likely rate-limited.`
+        : `AI review generation fell back to the phrase-bank generator for "${product.title}" — every configured AI provider (${providerList}) failed, likely rate-limited.`,
       {
         userId: product.store.userId,
         metadata: { productId, error: error instanceof Error ? error.message : String(error) },
       },
     );
   }
+
+  // Counts reviews skipped outright (AI-only mode, every provider failed) rather than created via
+  // the phrase-bank fallback — incremented from within the Promise.all below, but never
+  // concurrently from two slots at once since each increment happens synchronously between awaits.
+  let skippedCount = 0;
 
   // Phase 2: the actual slow part (AI network calls) runs in parallel across the whole batch —
   // this is what lets worker concurrency translate into real per-product throughput instead of
@@ -291,10 +308,15 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           reviewer: reviewerPersona,
           excludeCombos: usedCombos,
           ai,
+          aiOnlyMode,
           onAiFallback: warnAiFallbackOnce,
           onQuotaInfo: persistQuotaEvent,
           giftRecipient,
         });
+        if (produced === null) {
+          skippedCount++;
+          return;
+        }
         let hash = hashReviewContent(produced.content);
         let status: "DRAFT" | "DUPLICATE_REGENERATED" = "DRAFT";
 
@@ -310,10 +332,15 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
             reviewer: reviewerPersona,
             excludeCombos: usedCombos,
             ai,
+            aiOnlyMode,
             onAiFallback: warnAiFallbackOnce,
             onQuotaInfo: persistQuotaEvent,
             giftRecipient,
           });
+          if (produced === null) {
+            skippedCount++;
+            return;
+          }
           hash = hashReviewContent(produced.content);
           retries++;
         }
@@ -341,4 +368,12 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
       }
     }),
   );
+
+  if (skippedCount > 0) {
+    void logSystemEvent(
+      "WARN",
+      `Skipped ${skippedCount} of ${slots.length} requested review(s) for "${product.title}" — AI-only mode is enabled and AI generation failed for those slots.`,
+      { userId: product.store.userId, metadata: { productId, skippedCount, requestedCount: slots.length } },
+    );
+  }
 }

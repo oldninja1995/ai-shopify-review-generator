@@ -5,6 +5,9 @@ export const aiSettingsSchema = z.object({
   models: z.array(z.string().trim().min(1)).min(1, "Select at least one model"),
   enabled: z.boolean(),
   visionAudienceEnabled: z.boolean().optional().default(false),
+  // Skip a review instead of falling back to the phrase-bank generator once every configured AI
+  // provider fails (e.g. daily capacity exhausted). Off by default.
+  aiOnlyMode: z.boolean().optional().default(false),
   // Fallback provider, tried after every OpenRouter model fails. Optional — OpenRouter alone is
   // still a valid configuration.
   groqApiKey: z.string().trim().min(1).optional(),

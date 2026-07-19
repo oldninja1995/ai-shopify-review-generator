@@ -373,6 +373,10 @@ model AiSettings {
   // Off by default — costs an extra AI call per product (cached after the first success) and free
   // vision-capable models on OpenRouter are frequently rate-limited/oversubscribed.
   visionAudienceEnabled Boolean @default(false)
+  // When on, a review that every configured AI provider fails to generate is skipped instead of
+  // silently falling back to the phrase-bank generator — off by default so existing batches keep
+  // their current always-fills-the-requested-count behavior unless a store opts in.
+  aiOnlyMode      Boolean      @default(false)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
