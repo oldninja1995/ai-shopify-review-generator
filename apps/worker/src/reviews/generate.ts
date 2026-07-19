@@ -150,8 +150,11 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           event.snapshot ? (fresh ?? null) : (prior ?? null);
 
         const today = new Date().toISOString().slice(0, 10);
-        const selfTrackedCount =
-          event.provider === "openrouter" ? (existing?.selfTrackedDay === today ? existing.selfTrackedCount + 1 : 1) : 0;
+        const priorCount = existing?.selfTrackedDay === today ? existing.selfTrackedCount : 0;
+        // Only free-tier OpenRouter calls draw against the shared free daily cap this count
+        // estimates — a paid model succeeding shouldn't make the free-tier estimate look more
+        // exhausted than it actually is.
+        const selfTrackedCount = event.provider === "openrouter" && event.isFreeModel ? priorCount + 1 : priorCount;
 
         const data = {
           limitRequests: keep(event.snapshot?.limitRequests, existing?.limitRequests),

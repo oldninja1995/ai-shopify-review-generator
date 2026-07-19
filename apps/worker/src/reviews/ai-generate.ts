@@ -231,8 +231,16 @@ export type ProviderQuotaSnapshot = {
 
 /** Reported once per call attempt (success or failure) so callers can track usage over time —
  * `snapshot` is null when the provider gave back no rate-limit info at all for this call (always
- * true for OpenRouter on success, since it only reports anything once actually rate-limited). */
-export type ProviderQuotaEvent = { provider: AiProviderName; model: string; snapshot: ProviderQuotaSnapshot | null };
+ * true for OpenRouter on success, since it only reports anything once actually rate-limited).
+ * `isFreeModel` is only meaningful for OpenRouter (Groq's tier isn't per-model) — OpenRouter's
+ * shared account-wide daily cap only applies to `:free`-suffixed models, so callers need this to
+ * avoid charging a paid model's usage against that free-tier estimate. */
+export type ProviderQuotaEvent = {
+  provider: AiProviderName;
+  model: string;
+  snapshot: ProviderQuotaSnapshot | null;
+  isFreeModel: boolean;
+};
 
 /** Parses a Groq-style duration string ("2m59.56s", "7.66s") into an absolute Date. */
 function parseDurationToDate(duration: string | null): Date | null {
@@ -345,14 +353,18 @@ async function generateReviewWithModel(
   // OpenRouter's cap is account-wide, not per-model, so every OpenRouter event is tagged with a
   // fixed "account" model key rather than whichever specific model happened to be tried.
   const quotaModel = provider === "openrouter" ? "account" : model;
+  // OpenRouter marks its zero-cost model variants with a `:free` suffix on the model id (the paid
+  // version of the same underlying model has no suffix) — only those draw against the shared
+  // free-tier daily cap this estimate tracks.
+  const isFreeModel = provider !== "openrouter" || model.endsWith(":free");
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
-    onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, errorBody) });
+    onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, errorBody), isFreeModel });
     throw new Error(`Request failed for ${model}: ${response.status} ${errorBody}`);
   }
 
-  onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, null) });
+  onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, null), isFreeModel });
 
   const data = (await response.json()) as {
     choices?: { message?: { content?: string } }[];

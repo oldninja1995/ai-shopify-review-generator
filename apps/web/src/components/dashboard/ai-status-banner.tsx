@@ -78,10 +78,23 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  type Row = { label: string; limit: number | null; remaining: number | null; isEstimate: boolean; resetAt: Date | null };
+  type Row = {
+    label: string;
+    limit: number | null;
+    remaining: number | null;
+    isEstimate: boolean;
+    resetAt: Date | null;
+    /** True once this row's free-tier estimate hits zero but a paid model is also configured —
+     * generation keeps working off paid capacity instead of actually being exhausted, so the
+     * "exhausted, falling back to phrase-bank" warning would be wrong here. */
+    hasPaidFallback?: boolean;
+  };
   const rows: Row[] = [];
 
   if (aiSettings.apiKeyEncrypted && aiSettings.models.length > 0) {
+    // OpenRouter marks its zero-cost model variants with a `:free` suffix on the model id — any
+    // selected model without one is paid and isn't subject to the shared free-tier daily cap.
+    const hasPaidModel = aiSettings.models.some((id) => !id.endsWith(":free"));
     const quota = quotas.find((q) => q.provider === "openrouter" && q.model === "account");
     if (quota?.remainingRequests !== null && quota?.remainingRequests !== undefined) {
       // Authoritative — we've actually seen OpenRouter report this (only happens once rate-limited).
@@ -91,12 +104,15 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
         remaining: quota.remainingRequests,
         isEstimate: false,
         resetAt: quota.requestsResetAt,
+        hasPaidFallback: hasPaidModel,
       });
     } else {
       // OpenRouter never reports anything on success, so this is a best-effort estimate from our
       // own attempt count against the known free-tier default (50/day, or 1000/day with credits —
       // the real limit only becomes known once actually rate-limited, at which point it flips to
-      // the authoritative branch above).
+      // the authoritative branch above). Only free-model calls count toward usedToday (see
+      // persistQuotaEvent in generate.ts), so a paid model succeeding doesn't make this look more
+      // exhausted than it actually is.
       const limit = quota?.limitRequests ?? OPENROUTER_DEFAULT_FREE_LIMIT;
       const usedToday = quota?.selfTrackedDay === today ? quota.selfTrackedCount : 0;
       rows.push({
@@ -105,6 +121,7 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
         remaining: Math.max(0, limit - usedToday),
         isEstimate: true,
         resetAt: null,
+        hasPaidFallback: hasPaidModel,
       });
     }
   }
@@ -125,8 +142,9 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
   // Each review is ~1 API request in the common case, occasionally 2-3 on a hash-collision retry
   // or a rejected response_format — so this total is a "how many reviews can I realistically get
   // today" figure, not a literal request count, and deliberately phrased as "up to" rather than
-  // an exact promise.
-  const knownRemaining = rows.filter((r) => r.remaining !== null);
+  // an exact promise. A row whose free tier is used up but has a paid model to fall back on is
+  // excluded here — its true remaining capacity is unknown (paid, not exhausted), not zero.
+  const knownRemaining = rows.filter((r) => r.remaining !== null && !(r.hasPaidFallback && r.remaining === 0));
   const totalReviewsLeft =
     knownRemaining.length > 0 ? knownRemaining.reduce((sum, r) => sum + (r.remaining ?? 0), 0) : null;
 
@@ -168,10 +186,15 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
                   </div>
                   {percentUsed !== null && <Progress value={percentUsed} />}
                   {row.resetAt && <span className="text-xs text-muted-foreground">{formatResetAt(row.resetAt)}</span>}
-                  {row.remaining === 0 && (
+                  {row.remaining === 0 && row.hasPaidFallback && (
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Free tier used up for today — new reviews will use your paid OpenRouter model(s) instead.
+                    </span>
+                  )}
+                  {row.remaining === 0 && !row.hasPaidFallback && (
                     <span className="text-xs font-medium text-destructive">
                       Exhausted — new reviews will use the phrase-bank generator until this resets{" "}
-                      {row.remaining === 0 && row.isEstimate ? "(or you add OpenRouter credits)" : ""}.
+                      {row.isEstimate ? "(or you add OpenRouter credits)" : ""}.
                     </span>
                   )}
                 </div>
