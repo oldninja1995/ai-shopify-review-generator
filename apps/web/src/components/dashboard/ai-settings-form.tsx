@@ -341,9 +341,9 @@ export function AiSettingsForm({
             <p className="text-sm text-muted-foreground">
               By default, once every configured AI model/provider above fails or runs out of daily
               capacity, remaining reviews are still generated using the built-in phrase-bank
-              generator instead of AI. Turn this on to skip those reviews instead — you&apos;ll get
-              fewer reviews than requested when AI capacity runs out, with a warning explaining why,
-              rather than a mix of AI and phrase-bank content.
+              generator instead of AI. Turn this on to stop generating instead, the moment that
+              happens — the rest of that batch is skipped rather than continuing with phrase-bank
+              content, and you&apos;ll get a warning that the AI limit was hit.
             </p>
             <div className="flex items-center gap-2 pt-1">
               <Button

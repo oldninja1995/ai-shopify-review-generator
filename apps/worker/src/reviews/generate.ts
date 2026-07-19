@@ -257,19 +257,18 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
 
   // Surfaces AI-provider exhaustion on the dashboard (Logs page) instead of it only ever showing
   // up as a console.error — logged at most once per product per job, since a full batch can
-  // trigger this dozens of times and flooding the log would bury everything else. Message wording
-  // branches on aiOnlyMode, but both share the "every configured AI provider" phrase that
-  // ai-status-banner.tsx matches on to show the "degraded" warning regardless of mode.
+  // trigger this dozens of times and flooding the log would bury everything else. Only used for
+  // the classic (non-aiOnlyMode) fallback path — aiOnlyMode logs its own single stop-and-warn
+  // message below instead, once the batch is done. Both messages share the "every configured AI
+  // provider" phrase that ai-status-banner.tsx matches on to show the "degraded" warning.
   let aiFallbackWarned = false;
   function warnAiFallbackOnce(error: unknown) {
-    if (aiFallbackWarned || ai.length === 0) return;
+    if (aiOnlyMode || aiFallbackWarned || ai.length === 0) return;
     aiFallbackWarned = true;
     const providerList = `${openRouterAi ? "OpenRouter" : ""}${openRouterAi && groqAi ? " + " : ""}${groqAi ? "Groq" : ""}`;
     void logSystemEvent(
       "WARN",
-      aiOnlyMode
-        ? `AI review generation was skipped for "${product.title}" (AI-only mode) — every configured AI provider (${providerList}) failed, likely rate-limited.`
-        : `AI review generation fell back to the phrase-bank generator for "${product.title}" — every configured AI provider (${providerList}) failed, likely rate-limited.`,
+      `AI review generation fell back to the phrase-bank generator for "${product.title}" — every configured AI provider (${providerList}) failed, likely rate-limited.`,
       {
         userId: product.store.userId,
         metadata: { productId, error: error instanceof Error ? error.message : String(error) },
@@ -277,9 +276,11 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     );
   }
 
-  // Counts reviews skipped outright (AI-only mode, every provider failed) rather than created via
-  // the phrase-bank fallback — incremented from within the Promise.all below, but never
-  // concurrently from two slots at once since each increment happens synchronously between awaits.
+  // Set the moment AI generation fails once in AI-only mode — every slot that hasn't started its
+  // AI call yet then skips outright instead of also burning a request against an already-exhausted
+  // provider. `skippedCount` covers both kinds of skip: the slot whose failure set this flag, and
+  // every later slot that short-circuited because of it.
+  let aiExhausted = false;
   let skippedCount = 0;
 
   // Phase 2: the actual slow part (AI network calls) runs in parallel across the whole batch —
@@ -290,6 +291,10 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   // per-product duplicate-check job (see duplicate-check.worker.ts) already catches and cleans up.
   await Promise.all(
     slots.map(async ({ reviewer, giftRecipient, reviewLength, rating }) => {
+      if (aiOnlyMode && aiExhausted) {
+        skippedCount++;
+        return;
+      }
       try {
         const reviewerPersona = {
           name: reviewer.name,
@@ -314,6 +319,7 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           giftRecipient,
         });
         if (produced === null) {
+          aiExhausted = true;
           skippedCount++;
           return;
         }
@@ -338,6 +344,7 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
             giftRecipient,
           });
           if (produced === null) {
+            aiExhausted = true;
             skippedCount++;
             return;
           }
@@ -369,10 +376,10 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     }),
   );
 
-  if (skippedCount > 0) {
+  if (aiExhausted) {
     void logSystemEvent(
       "WARN",
-      `Skipped ${skippedCount} of ${slots.length} requested review(s) for "${product.title}" — AI-only mode is enabled and AI generation failed for those slots.`,
+      `AI limit hit for "${product.title}" — every configured AI provider failed, so generation stopped early (AI-only mode). Skipped ${skippedCount} of ${slots.length} requested review(s).`,
       { userId: product.store.userId, metadata: { productId, skippedCount, requestedCount: slots.length } },
     );
   }
