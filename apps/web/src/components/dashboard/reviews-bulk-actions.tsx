@@ -25,9 +25,11 @@ export function ReviewsBulkActions({ currentStatus }: { currentStatus: string | 
 
   async function deleteAll() {
     const scopeLabel =
-      !currentStatus || currentStatus === "ALL"
+      currentStatus === "ALL"
         ? "every review in this store"
-        : `every review matching the "${currentStatus}" filter`;
+        : !currentStatus
+          ? "every pending (Draft/Approved) review in this store"
+          : `every review matching the "${currentStatus}" filter`;
     if (!confirm(`Delete ${scopeLabel}? This can't be undone.`)) return;
     setBusy("delete");
     const result = await postJson<{ deletedCount: number }>("/api/reviews/delete-all", {
