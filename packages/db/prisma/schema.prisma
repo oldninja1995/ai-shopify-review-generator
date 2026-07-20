@@ -77,7 +77,7 @@ model ShopifyStore {
   reviewProviderConfigs ReviewProviderConfig[]
   bulkGenerationJobs   BulkGenerationJob[]
   duplicateCheckJobs   DuplicateCheckJob[]
-  aiProviderQuotas     AiProviderQuota[]
+  aiProviderStatuses   AiProviderStatus[]
 
   @@index([userId])
   @@map("shopify_stores")
@@ -389,30 +389,33 @@ model AiSettings {
 // always accurate. OpenRouter only reports rate-limit info once you're actually rate-limited (a
 // successful response carries none at all), so its single "account" row also self-tracks a daily
 // attempt count as a best-effort estimate until the real thing is observed.
-model AiProviderQuota {
-  id       String       @id @default(cuid())
-  storeId  String
-  store    ShopifyStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+enum AiProviderHealth {
+  OK
+  BLOCKED
+}
+
+// Universal, provider-agnostic health signal: not an estimate of remaining quota (that required
+// guessing at daily caps and free/paid model pricing per provider, which drifted out of sync with
+// reality — see the ":free" id-suffix heuristic this replaced). Instead this only ever reflects
+// what's actually true from the last real call: did it succeed or fail. Every provider/model gets
+// the exact same treatment.
+model AiProviderStatus {
+  id      String       @id @default(cuid())
+  storeId String
+  store   ShopifyStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
   provider String // "openrouter" | "groq"
-  model    String // Groq: the specific model id (limits are per-model); OpenRouter: "account" (shared cap)
+  model    String // the specific model id last called
 
-  limitRequests     Int?
-  remainingRequests Int?
-  requestsResetAt   DateTime?
-  limitTokens       Int?
-  remainingTokens   Int?
-  tokensResetAt     DateTime?
-
-  // OpenRouter-only fallback (see model doc comment above) — ignored for Groq rows, which always
-  // have authoritative data.
-  selfTrackedCount Int      @default(0)
-  selfTrackedDay   String? // "YYYY-MM-DD", UTC
+  status       AiProviderHealth @default(OK)
+  // Set the moment a call first fails after being OK; cleared back to null on the next success.
+  blockedSince DateTime?
+  lastError    String?          @db.Text
 
   updatedAt DateTime @updatedAt
 
   @@unique([storeId, provider, model])
   @@index([storeId])
-  @@map("ai_provider_quotas")
+  @@map("ai_provider_status")
 }
 
 enum DuplicateCheckStatus {

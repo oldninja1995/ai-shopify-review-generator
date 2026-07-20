@@ -142,47 +142,31 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   );
   const aiOnlyMode = aiSettings?.aiOnlyMode ?? false;
 
-  // Persists a live snapshot of each provider's rate-limit status so the dashboard can show real
-  // remaining/limit numbers. Groq reports this on every call; OpenRouter only reports anything at
-  // all once actually rate-limited, so its "account" row also self-tracks a daily attempt count
-  // in the meantime as a best-effort estimate (see AiProviderQuota's schema doc comment).
+  // Persists a plain, universal health signal per provider+model so the dashboard can show
+  // whether it's actually working right now — derived only from real call outcomes, not a
+  // guessed daily cap or free/paid heuristic (see AiProviderStatus's schema doc comment).
   function persistQuotaEvent(event: ProviderQuotaEvent) {
     void (async () => {
       try {
-        const existing = await prisma.aiProviderQuota.findUnique({
+        const existing = await prisma.aiProviderStatus.findUnique({
           where: { storeId_provider_model: { storeId: product.storeId, provider: event.provider, model: event.model } },
         });
 
-        // When this call didn't return any rate-limit info at all, keep whatever we already had
-        // rather than overwriting known-good data with nulls.
-        const keep = <T>(fresh: T | null | undefined, prior: T | null | undefined): T | null =>
-          event.snapshot ? (fresh ?? null) : (prior ?? null);
-
-        const today = new Date().toISOString().slice(0, 10);
-        const priorCount = existing?.selfTrackedDay === today ? existing.selfTrackedCount : 0;
-        // Only free-tier OpenRouter calls draw against the shared free daily cap this count
-        // estimates — a paid model succeeding shouldn't make the free-tier estimate look more
-        // exhausted than it actually is.
-        const selfTrackedCount = event.provider === "openrouter" && event.isFreeModel ? priorCount + 1 : priorCount;
-
         const data = {
-          limitRequests: keep(event.snapshot?.limitRequests, existing?.limitRequests),
-          remainingRequests: keep(event.snapshot?.remainingRequests, existing?.remainingRequests),
-          requestsResetAt: keep(event.snapshot?.requestsResetAt, existing?.requestsResetAt),
-          limitTokens: keep(event.snapshot?.limitTokens, existing?.limitTokens),
-          remainingTokens: keep(event.snapshot?.remainingTokens, existing?.remainingTokens),
-          tokensResetAt: keep(event.snapshot?.tokensResetAt, existing?.tokensResetAt),
-          selfTrackedCount,
-          selfTrackedDay: today,
+          status: (event.ok ? "OK" : "BLOCKED") as "OK" | "BLOCKED",
+          // Preserve the original blocked-since timestamp across consecutive failures; clear it
+          // the moment a call succeeds again.
+          blockedSince: event.ok ? null : (existing?.status === "BLOCKED" ? existing.blockedSince : new Date()),
+          lastError: event.ok ? null : (event.error ?? null),
         };
 
-        await prisma.aiProviderQuota.upsert({
+        await prisma.aiProviderStatus.upsert({
           where: { storeId_provider_model: { storeId: product.storeId, provider: event.provider, model: event.model } },
           create: { storeId: product.storeId, provider: event.provider, model: event.model, ...data },
           update: data,
         });
       } catch (error) {
-        console.error("[review-generation] failed to persist AI quota snapshot:", error);
+        console.error("[review-generation] failed to persist AI provider status:", error);
       }
     })();
   }

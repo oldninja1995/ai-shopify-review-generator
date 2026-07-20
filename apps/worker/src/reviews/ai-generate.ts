@@ -217,96 +217,15 @@ export type AiProviderName = "openrouter" | "groq";
  * chat-completions shape — only the base URL and API key differ. */
 export type AiProviderConfig = { name: AiProviderName; baseUrl: string; apiKey: string; models: string[] };
 
-/** A live rate-limit reading for one provider+model, as of the most recent call. `null` fields
- * mean that particular figure wasn't reported (e.g. OpenRouter never reports token limits, and
- * only reports anything at all once you're actually rate-limited). */
-export type ProviderQuotaSnapshot = {
-  limitRequests: number | null;
-  remainingRequests: number | null;
-  requestsResetAt: Date | null;
-  limitTokens: number | null;
-  remainingTokens: number | null;
-  tokensResetAt: Date | null;
-};
-
-/** Reported once per call attempt (success or failure) so callers can track usage over time —
- * `snapshot` is null when the provider gave back no rate-limit info at all for this call (always
- * true for OpenRouter on success, since it only reports anything once actually rate-limited).
- * `isFreeModel` is only meaningful for OpenRouter (Groq's tier isn't per-model) — OpenRouter's
- * shared account-wide daily cap only applies to `:free`-suffixed models, so callers need this to
- * avoid charging a paid model's usage against that free-tier estimate. */
+/** Reported once per call attempt, success or failure — a plain, universal signal rather than an
+ * estimate. Every provider/model gets identical treatment: did the last real call work or not. */
 export type ProviderQuotaEvent = {
   provider: AiProviderName;
   model: string;
-  snapshot: ProviderQuotaSnapshot | null;
-  isFreeModel: boolean;
+  ok: boolean;
+  /** Set when ok is false — the error that caused this call to fail. */
+  error?: string;
 };
-
-/** Parses a Groq-style duration string ("2m59.56s", "7.66s") into an absolute Date. */
-function parseDurationToDate(duration: string | null): Date | null {
-  if (!duration) return null;
-  const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?$/.exec(duration.trim());
-  if (!match) return null;
-  const [, h, m, s] = match;
-  const ms = (Number(h ?? 0) * 3600 + Number(m ?? 0) * 60 + Number(s ?? 0)) * 1000;
-  return new Date(Date.now() + ms);
-}
-
-function numOrNull(value: string | null): number | null {
-  if (value === null) return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Groq reports rate-limit headers on every response, success or failure. OpenRouter only ever
- * reports anything on a 429 for its shared free-tier daily cap — and even then, as of this
- * writing it shows up embedded in the JSON error body (`error.metadata.headers`) rather than as
- * real HTTP response headers, so both are checked. */
-function parseQuotaSnapshot(
-  provider: AiProviderName,
-  response: Response,
-  errorBody: string | null,
-): ProviderQuotaSnapshot | null {
-  if (provider === "groq") {
-    const limitRequests = numOrNull(response.headers.get("x-ratelimit-limit-requests"));
-    if (limitRequests === null) return null;
-    return {
-      limitRequests,
-      remainingRequests: numOrNull(response.headers.get("x-ratelimit-remaining-requests")),
-      requestsResetAt: parseDurationToDate(response.headers.get("x-ratelimit-reset-requests")),
-      limitTokens: numOrNull(response.headers.get("x-ratelimit-limit-tokens")),
-      remainingTokens: numOrNull(response.headers.get("x-ratelimit-remaining-tokens")),
-      tokensResetAt: parseDurationToDate(response.headers.get("x-ratelimit-reset-tokens")),
-    };
-  }
-
-  let limit = response.headers.get("x-ratelimit-limit");
-  let remaining = response.headers.get("x-ratelimit-remaining");
-  let reset = response.headers.get("x-ratelimit-reset");
-  if (!limit && errorBody) {
-    try {
-      const parsed = JSON.parse(errorBody) as {
-        error?: { metadata?: { headers?: Record<string, string> } };
-      };
-      const headers = parsed.error?.metadata?.headers;
-      limit = headers?.["X-RateLimit-Limit"] ?? null;
-      remaining = headers?.["X-RateLimit-Remaining"] ?? null;
-      reset = headers?.["X-RateLimit-Reset"] ?? null;
-    } catch {
-      // Not JSON — e.g. a Cloudflare HTML block page. Nothing to extract.
-    }
-  }
-  const limitRequests = numOrNull(limit);
-  if (limitRequests === null) return null;
-  return {
-    limitRequests,
-    remainingRequests: numOrNull(remaining),
-    requestsResetAt: reset ? new Date(Number(reset)) : null,
-    limitTokens: null,
-    remainingTokens: null,
-    tokensResetAt: null,
-  };
-}
 
 /** Calls an OpenAI-compatible chat-completions endpoint with one specific model. Throws on any
  * failure or unusable output — callers move on to the next model/provider. */
@@ -342,29 +261,28 @@ async function generateReviewWithModel(
   onQuotaInfo?: (event: ProviderQuotaEvent) => void,
 ): Promise<{ title: string; content: string }> {
   const prompt = buildPrompt(params);
-  let response = await callChatCompletions(baseUrl, apiKey, model, prompt, true);
 
-  // Some models (especially free/small ones) reject the response_format parameter — retry
-  // without it rather than treating that as a hard failure for this model.
-  if (!response.ok) {
-    response = await callChatCompletions(baseUrl, apiKey, model, prompt, false);
+  let response: Response;
+  try {
+    response = await callChatCompletions(baseUrl, apiKey, model, prompt, true);
+    // Some models (especially free/small ones) reject the response_format parameter — retry
+    // without it rather than treating that as a hard failure for this model.
+    if (!response.ok) {
+      response = await callChatCompletions(baseUrl, apiKey, model, prompt, false);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    onQuotaInfo?.({ provider, model, ok: false, error: `network error: ${message}` });
+    throw error;
   }
-
-  // OpenRouter's cap is account-wide, not per-model, so every OpenRouter event is tagged with a
-  // fixed "account" model key rather than whichever specific model happened to be tried.
-  const quotaModel = provider === "openrouter" ? "account" : model;
-  // OpenRouter marks its zero-cost model variants with a `:free` suffix on the model id (the paid
-  // version of the same underlying model has no suffix) — only those draw against the shared
-  // free-tier daily cap this estimate tracks.
-  const isFreeModel = provider !== "openrouter" || model.endsWith(":free");
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
-    onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, errorBody), isFreeModel });
+    onQuotaInfo?.({ provider, model, ok: false, error: `${response.status} ${errorBody}`.slice(0, 500) });
     throw new Error(`Request failed for ${model}: ${response.status} ${errorBody}`);
   }
 
-  onQuotaInfo?.({ provider, model: quotaModel, snapshot: parseQuotaSnapshot(provider, response, null), isFreeModel });
+  onQuotaInfo?.({ provider, model, ok: true });
 
   const data = (await response.json()) as {
     choices?: { message?: { content?: string } }[];
