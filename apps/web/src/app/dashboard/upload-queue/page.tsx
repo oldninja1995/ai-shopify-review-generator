@@ -51,7 +51,15 @@ export default async function UploadQueuePage({
     prisma.uploadJob.count({ where }),
     prisma.uploadJob.findMany({
       where,
-      include: { review: { include: { product: true, reviewerProfile: true } }, providerConfig: true },
+      include: {
+        review: {
+          select: {
+            product: { select: { title: true } },
+            reviewerProfile: { select: { name: true } },
+          },
+        },
+        providerConfig: { select: { provider: true } },
+      },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,

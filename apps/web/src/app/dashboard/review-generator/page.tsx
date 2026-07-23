@@ -21,7 +21,10 @@ export default async function ReviewGeneratorPage() {
     ? (
         await prisma.generatedReview.findMany({
           where: { product: { storeId: store.id } },
-          include: { product: true, reviewerProfile: true },
+          include: {
+            product: { select: { title: true } },
+            reviewerProfile: { select: { name: true, gender: true } },
+          },
           orderBy: { createdAt: "desc" },
           take: 100,
         })

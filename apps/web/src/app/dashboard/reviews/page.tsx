@@ -63,7 +63,10 @@ export default async function ReviewsPage({
     prisma.generatedReview.count({ where }),
     prisma.generatedReview.findMany({
       where,
-      include: { product: true, reviewerProfile: true },
+      include: {
+        product: { select: { title: true } },
+        reviewerProfile: { select: { name: true } },
+      },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,

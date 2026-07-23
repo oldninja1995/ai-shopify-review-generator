@@ -39,18 +39,44 @@ export default async function AnalyticsPage() {
 
   const reviewWhere = { product: { storeId: store.id } };
 
-  const [statusGroups, ratingGroups, failedUploadCount, totalReviewers, maleReviewerCount, productReviewCounts] =
-    await Promise.all([
-      prisma.generatedReview.groupBy({ by: ["status"], where: reviewWhere, _count: true }),
-      prisma.generatedReview.groupBy({ by: ["rating"], where: reviewWhere, _count: true }),
-      prisma.uploadJob.count({ where: { status: "FAILED", review: reviewWhere } }),
-      prisma.reviewerProfile.count({ where: { storeId: store.id } }),
-      prisma.reviewerProfile.count({ where: { storeId: store.id, gender: "MALE" } }),
-      prisma.product.findMany({
-        where: { storeId: store.id },
-        select: { id: true, title: true, productType: true, _count: { select: { reviews: true } } },
-      }),
-    ]);
+  // Category/product rankings are aggregated in the database (GROUP BY + LIMIT 10) rather than
+  // fetching every product row and reducing in JS — this store can have thousands of products, and
+  // pulling them all on every analytics page load was a real source of unnecessary DB egress.
+  const [
+    statusGroups,
+    ratingGroups,
+    failedUploadCount,
+    totalReviewers,
+    maleReviewerCount,
+    totalProducts,
+    topCategories,
+    topProducts,
+  ] = await Promise.all([
+    prisma.generatedReview.groupBy({ by: ["status"], where: reviewWhere, _count: true }),
+    prisma.generatedReview.groupBy({ by: ["rating"], where: reviewWhere, _count: true }),
+    prisma.uploadJob.count({ where: { status: "FAILED", review: reviewWhere } }),
+    prisma.reviewerProfile.count({ where: { storeId: store.id } }),
+    prisma.reviewerProfile.count({ where: { storeId: store.id, gender: "MALE" } }),
+    prisma.product.count({ where: { storeId: store.id } }),
+    prisma.$queryRaw<{ label: string; count: number }[]>`
+      SELECT COALESCE(NULLIF(TRIM(p."productType"), ''), 'Uncategorized') AS label, COUNT(gr.id)::int AS count
+      FROM products p
+      LEFT JOIN generated_reviews gr ON gr."productId" = p.id
+      WHERE p."storeId" = ${store.id}
+      GROUP BY label
+      ORDER BY count DESC
+      LIMIT 10
+    `,
+    prisma.$queryRaw<{ id: string; title: string; count: number }[]>`
+      SELECT p.id, p.title, COUNT(gr.id)::int AS count
+      FROM products p
+      LEFT JOIN generated_reviews gr ON gr."productId" = p.id
+      WHERE p."storeId" = ${store.id}
+      GROUP BY p.id, p.title
+      ORDER BY count DESC
+      LIMIT 10
+    `,
+  ]);
 
   const statusCounts = Object.fromEntries(statusGroups.map((g) => [g.status, g._count]));
   const ratingCounts = Object.fromEntries(ratingGroups.map((g) => [g.rating, g._count]));
@@ -59,23 +85,7 @@ export default async function AnalyticsPage() {
   const duplicateCount = statusCounts.DUPLICATE_REGENERATED ?? 0;
   const femaleReviewerCount = totalReviewers - maleReviewerCount;
 
-  const totalProducts = productReviewCounts.length;
   const avgReviewsPerProduct = totalProducts > 0 ? totalGenerated / totalProducts : 0;
-
-  const reviewsByCategory = new Map<string, number>();
-  for (const product of productReviewCounts) {
-    const category = product.productType.trim() || "Uncategorized";
-    reviewsByCategory.set(category, (reviewsByCategory.get(category) ?? 0) + product._count.reviews);
-  }
-  const topCategories = Array.from(reviewsByCategory.entries())
-    .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
-
-  const topProducts = [...productReviewCounts]
-    .sort((a, b) => b._count.reviews - a._count.reviews)
-    .slice(0, 10)
-    .map((p) => ({ id: p.id, title: p.title, count: p._count.reviews }));
 
   return (
     <div className="space-y-4">
