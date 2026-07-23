@@ -22,3 +22,15 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   return user;
 }
+
+/** JWT-only auth check (no DB call) — for gating access (e.g. the dashboard layout's redirect
+ * check) where only "is this a valid session" matters, not the user's profile fields. Every page
+ * under the gate calls `getCurrentUser()` itself for the actual user object it needs, so having
+ * the layout *also* hit the DB just to decide whether to redirect was a fully redundant second
+ * round-trip on every single navigation. */
+export async function hasValidSession(): Promise<boolean> {
+  const token = await getAccessTokenCookie();
+  if (!token) return false;
+  const payload = await verifyAccessToken(token);
+  return payload !== null;
+}
