@@ -39,6 +39,22 @@ export function findExactContentDupes(productReviews: ReviewRow[]): Set<string> 
   return contentDupeIds;
 }
 
+/** Same exact-hash logic as `findExactContentDupes`, but also reports which earlier review each
+ * duplicate actually matches (the first review that hash was seen on) — needed anywhere the match
+ * is shown to a user, since a product can contain more than one distinct duplicate group. */
+export function findExactContentDupePairs(
+  productReviews: ReviewRow[],
+): { reviewId: string; matchedReviewId: string }[] {
+  const firstSeenByHash = new Map<string, string>();
+  const pairs: { reviewId: string; matchedReviewId: string }[] = [];
+  for (const review of productReviews) {
+    const original = firstSeenByHash.get(review.contentEmbeddingHash);
+    if (original) pairs.push({ reviewId: review.id, matchedReviewId: original });
+    else firstSeenByHash.set(review.contentEmbeddingHash, review.id);
+  }
+  return pairs;
+}
+
 export function findReviewerDupes(productReviews: ReviewRow[]): Set<string> {
   const reviewerDupeIds = new Set<string>();
   const seenReviewer = new Set<string>();
@@ -130,10 +146,7 @@ export async function runAiCheck(jobId: string, storeId: string, reviews: Review
           } else {
             // AI unavailable or failed for this product — fall back to exact-hash matching, same
             // logic EXACT mode uses, so this product still gets a real (if less thorough) check.
-            contentPairs = Array.from(findExactContentDupes(productReviews)).map((reviewId) => ({
-              reviewId,
-              matchedReviewId: productReviews[0]!.id,
-            }));
+            contentPairs = findExactContentDupePairs(productReviews);
           }
         }
 

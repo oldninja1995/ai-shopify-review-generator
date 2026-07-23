@@ -22,8 +22,11 @@ export async function processUploadJob(uploadJobId: string, isFinalAttempt: bool
   });
 
   // Guards the race where this job was already dequeued before a cancel request reached the
-  // queue — same pattern as review-generation.worker.ts's bulk-job cancel check.
-  if (uploadJob.status === "CANCELLED") return;
+  // queue — same pattern as review-generation.worker.ts's bulk-job cancel check. Also guards
+  // against actually re-posting to the provider if this uploadJobId ever ends up enqueued twice
+  // (e.g. a double-submitted upload request) — without this, a second processing pass would post
+  // the same review to the provider (e.g. Judge.me) a second time, visible to real customers.
+  if (uploadJob.status === "CANCELLED" || uploadJob.status === "SUCCEEDED") return;
 
   await prisma.uploadJob.update({
     where: { id: uploadJobId },

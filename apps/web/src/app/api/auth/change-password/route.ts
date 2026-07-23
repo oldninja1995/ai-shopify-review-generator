@@ -34,7 +34,17 @@ export async function POST(request: Request) {
   }
 
   const passwordHash = await hashPassword(parsed.data.newPassword);
-  await prisma.user.update({ where: { id: currentUser.id }, data: { passwordHash } });
+
+  // Revoke every other active session on change, same as the forgot-password reset flow — without
+  // this, a stolen session/refresh token would silently survive a password change, defeating the
+  // point of changing it.
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: currentUser.id }, data: { passwordHash } }),
+    prisma.refreshSession.updateMany({
+      where: { userId: currentUser.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
 
   return NextResponse.json(apiSuccess({ changed: true }));
 }
