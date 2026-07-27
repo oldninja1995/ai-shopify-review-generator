@@ -45,12 +45,13 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
     }
   },
   // Lowered from 60 (a Neon-era tuning) after migrating to Supabase — the free-tier pooler caps
-  // out around 15 connections total, and 60 concurrent products (each fanning out further per
-  // reviewer slot) blew through that with `P2024: Timed out fetching a new connection from the
-  // connection pool`, failing the vast majority of a bulk job. Postgres connections, not
-  // OpenRouter rate limits, are the real ceiling on this DB tier — don't raise this again without
-  // first confirming the Supabase project's actual pool_size.
-  { connection, concurrency: 10 },
+  // out around 15 connections total. First attempt (concurrency 10 + connection_limit 10, see
+  // DATABASE_URL) still starved: each in-flight product can issue more than one query at once
+  // (e.g. the AiProviderStatus write alongside the main generation query), so a 1:1 concurrency-
+  // to-connection_limit ratio left no headroom and completions stalled entirely. Dropped further
+  // to 5, against a connection_limit of 15 (3x headroom per concurrent product) — don't raise
+  // this again without first confirming the Supabase project's actual pool_size.
+  { connection, concurrency: 5 },
 );
 
 reviewGenerationWorker.on("failed", (job, error) => {
