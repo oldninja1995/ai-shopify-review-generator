@@ -44,13 +44,13 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       throw error;
     }
   },
-  // 60 products in flight at once. Raised again from 35 — confirmed production DATABASE_URL uses
-  // Neon's pooled (pgbouncer) connection, so Postgres isn't the limiting factor at this level.
-  // The real ceiling now is OpenRouter's per-model rate limits: pushing much higher than this
-  // risks more 429s and fallback-cascading per review (each retry adds latency), which can
-  // actually work against throughput rather than for it. 60 is a deliberate stopping point, not
-  // an arbitrary max — re-tune based on observed 429 rate in worker logs before going higher.
-  { connection, concurrency: 60 },
+  // Lowered from 60 (a Neon-era tuning) after migrating to Supabase — the free-tier pooler caps
+  // out around 15 connections total, and 60 concurrent products (each fanning out further per
+  // reviewer slot) blew through that with `P2024: Timed out fetching a new connection from the
+  // connection pool`, failing the vast majority of a bulk job. Postgres connections, not
+  // OpenRouter rate limits, are the real ceiling on this DB tier — don't raise this again without
+  // first confirming the Supabase project's actual pool_size.
+  { connection, concurrency: 10 },
 );
 
 reviewGenerationWorker.on("failed", (job, error) => {

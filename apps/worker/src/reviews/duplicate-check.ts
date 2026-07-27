@@ -4,9 +4,11 @@ import { detectAiDuplicates } from "./ai-duplicate-detect.js";
 import { env } from "../env.js";
 
 const DELETE_CHUNK_SIZE = 200;
-// I/O-bound (network wait on OpenRouter), not CPU/DB-bound — same reasoning as the
-// review-generation concurrency bump (10 -> 60) earlier this session applies here too.
-const AI_PRODUCT_CONCURRENCY = 40;
+// Lowered from 40 (a Neon-era tuning) after migrating to Supabase — the free-tier pooler caps out
+// around 15 connections total, and each concurrent product here does several DB queries alongside
+// its OpenRouter call, so 40 in flight was enough to exhaust the pool on its own. See the matching
+// fix/comment on review-generation.worker.ts's concurrency.
+const AI_PRODUCT_CONCURRENCY = 10;
 
 type ReviewRow = {
   id: string;
