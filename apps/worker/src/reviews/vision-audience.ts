@@ -1,5 +1,6 @@
 import type { AudienceGender } from "@ai-shopify/shared";
 import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
+import { isModelBlocked, noteModelFailure, noteModelSuccess } from "./model-health.js";
 
 type OpenRouterModel = {
   id: string;
@@ -9,6 +10,11 @@ type OpenRouterModel = {
 
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 let cachedVisionModels: { fetchedAt: number; models: string[] } | null = null;
+
+/** Set when a full sweep of vision models finds none usable — suppresses the whole feature for a
+ * while rather than repeating the sweep for every product in a bulk run. */
+let visionUnavailableUntil = 0;
+const VISION_UNAVAILABLE_COOLDOWN_MS = 10 * 60 * 1000;
 
 /** Vision-capable models aren't part of the store's own configured text-generation model list
  * (those are picked for review-writing quality, not guaranteed to support images) — this queries
@@ -109,18 +115,39 @@ export async function analyzeProductAudienceFromImage(
   apiKey: string,
   imageUrl: string,
 ): Promise<AudienceGender | null> {
+  // Product.detectedAudience caches a *successful* analysis, so when vision is failing outright
+  // nothing is ever cached and every product in a 5,000-product run pays the full 10-model walk
+  // again for a result that cannot come. This backs the whole feature off for a few minutes once a
+  // sweep finds nothing usable, which is the difference between ~10 doomed HTTP calls per product
+  // and ~10 per cooldown window.
+  if (Date.now() < visionUnavailableUntil) return null;
+
   const models = await getVisionCapableModels();
   if (models.length === 0) return null;
 
   // Higher cap than the text-generation retry chain — free vision models are frequently
   // rate-limited (see comment on getVisionCapableModels), so this needs enough attempts to
   // actually fall through into the paid tier rather than giving up while still among free options.
-  for (const model of models.slice(0, 10)) {
+  const candidates = models.slice(0, 10).filter((model) => !isModelBlocked("openrouter", model));
+  if (candidates.length === 0) {
+    visionUnavailableUntil = Date.now() + VISION_UNAVAILABLE_COOLDOWN_MS;
+    return null;
+  }
+
+  for (const model of candidates) {
     try {
-      return await tryModel(apiKey, model, imageUrl);
+      const result = await tryModel(apiKey, model, imageUrl);
+      noteModelSuccess("openrouter", model);
+      return result;
     } catch (error) {
+      // tryModel throws with the status embedded in its message; pull it out so a 402/404 backs off
+      // for an hour while a 429 retries in ten minutes.
+      const status = Number(/\b(\d{3})\b\s*$/.exec(String(error))?.[1] ?? 0);
+      noteModelFailure("openrouter", model, status);
       console.error(`[vision-audience] model ${model} failed:`, error);
     }
   }
+
+  visionUnavailableUntil = Date.now() + VISION_UNAVAILABLE_COOLDOWN_MS;
   return null;
 }

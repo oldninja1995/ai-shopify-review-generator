@@ -1,5 +1,6 @@
 import { isUsableUspPhrase, type ReviewLength } from "@ai-shopify/shared";
 import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
+import { isModelBlocked, noteModelFailure, noteModelSuccess } from "./model-health.js";
 
 // Kept deliberately short across all three tiers — real customer reviews are almost always brief,
 // and even the "long" tier should read as a slightly fuller quick review, not a paragraph.
@@ -266,22 +267,30 @@ async function generateReviewWithModel(
   try {
     response = await callChatCompletions(baseUrl, apiKey, model, prompt, true);
     // Some models (especially free/small ones) reject the response_format parameter — retry
-    // without it rather than treating that as a hard failure for this model.
-    if (!response.ok) {
+    // without it rather than treating that as a hard failure for this model. Only worth doing for
+    // a request the model actually rejected: a 401/402/404/429 says nothing about response_format,
+    // so retrying those just doubles the cost of a failure that was never going to succeed.
+    if (!response.ok && (response.status === 400 || response.status === 422)) {
       response = await callChatCompletions(baseUrl, apiKey, model, prompt, false);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // Timeouts are the expensive failure — 30s of a concurrency slot each. Back this model off so
+    // the rest of the batch doesn't queue up behind the same dead endpoint.
+    noteModelFailure(provider, model, 0);
     onQuotaInfo?.({ provider, model, ok: false, error: `network error: ${message}` });
     throw error;
   }
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
+    const retryAfter = Number(response.headers.get("retry-after"));
+    noteModelFailure(provider, model, response.status, Number.isFinite(retryAfter) ? retryAfter : undefined);
     onQuotaInfo?.({ provider, model, ok: false, error: `${response.status} ${errorBody}`.slice(0, 500) });
     throw new Error(`Request failed for ${model}: ${response.status} ${errorBody}`);
   }
 
+  noteModelSuccess(provider, model);
   onQuotaInfo?.({ provider, model, ok: true });
 
   const data = (await response.json()) as {
@@ -313,8 +322,16 @@ export async function generateReviewWithAI(
   onQuotaInfo?: (event: ProviderQuotaEvent) => void,
 ): Promise<{ title: string; content: string }> {
   const errors: string[] = [];
+  let skipped = 0;
   for (const provider of providers) {
     for (const model of provider.models) {
+      // Skip anything a recent call already proved unusable. This is what stops every review
+      // re-walking the same dead fleet: after the first review of a run, a fully-blocked provider
+      // costs zero requests instead of two per model.
+      if (isModelBlocked(provider.name, model)) {
+        skipped++;
+        continue;
+      }
       try {
         return await generateReviewWithModel(provider.name, provider.baseUrl, provider.apiKey, model, params, onQuotaInfo);
       } catch (error) {
@@ -322,5 +339,9 @@ export async function generateReviewWithAI(
       }
     }
   }
-  throw new Error(`All configured AI models failed: ${errors.join(" | ")}`);
+  throw new Error(
+    skipped > 0 && errors.length === 0
+      ? `All ${skipped} configured AI models are in cooldown after recent failures`
+      : `All configured AI models failed: ${errors.join(" | ")}${skipped > 0 ? ` (+${skipped} skipped, in cooldown)` : ""}`,
+  );
 }
