@@ -8,6 +8,7 @@ declare global {
   var __reviewGenerationQueue: Queue | undefined;
   var __reviewUploadQueue: Queue | undefined;
   var __duplicateCheckQueue: Queue | undefined;
+  var __uploadedScanQueue: Queue | undefined;
 }
 
 function requireEnv(name: "REDIS_URL"): string {
@@ -50,10 +51,14 @@ export const reviewUploadQueue =
 export const duplicateCheckQueue =
   globalThis.__duplicateCheckQueue ?? new Queue(QUEUE_NAMES.DUPLICATE_CHECK, { connection });
 
+export const uploadedScanQueue =
+  globalThis.__uploadedScanQueue ?? new Queue(QUEUE_NAMES.UPLOADED_SCAN, { connection });
+
 if (process.env.NODE_ENV !== "production") {
   globalThis.__redisConnection = connection;
   globalThis.__shopifySyncQueue = shopifySyncQueue;
   globalThis.__reviewGenerationQueue = reviewGenerationQueue;
   globalThis.__reviewUploadQueue = reviewUploadQueue;
   globalThis.__duplicateCheckQueue = duplicateCheckQueue;
+  globalThis.__uploadedScanQueue = uploadedScanQueue;
 }

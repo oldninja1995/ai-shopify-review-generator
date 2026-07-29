@@ -71,4 +71,76 @@ export const judgeMeProvider: ReviewProvider = {
 
     return { externalReviewId };
   },
+
+  /** Judge.me's read API needs an api_token, unlike its public create endpoint — hence the separate
+   * credential. Paged; the caller keeps requesting until hasMore is false. */
+  async fetchReviews(credentials, { page, perPage }) {
+    const { shopDomain, apiToken } = credentials;
+    if (!shopDomain) throw new Error("Missing shopDomain for Judge.me");
+    if (!apiToken) {
+      throw new Error("Missing Judge.me API token — add it under Settings > Review provider");
+    }
+
+    const url = new URL(JUDGE_ME_REVIEWS_ENDPOINT);
+    url.searchParams.set("api_token", apiToken);
+    url.searchParams.set("shop_domain", shopDomain);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(perPage));
+
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      const retryable = response.status === 429 || response.status >= 500;
+      throw new ProviderUploadError(
+        `Judge.me review fetch failed ${response.status}: ${(await response.text()).slice(0, 300)}`,
+        { status: response.status, retryable },
+      );
+    }
+
+    const body = (await response.json()) as {
+      reviews?: {
+        id?: number | string;
+        title?: string | null;
+        body?: string | null;
+        rating?: number;
+        created_at?: string;
+        product_external_id?: number | string;
+        product_title?: string;
+        reviewer?: { name?: string | null } | null;
+      }[];
+    };
+
+    const reviews = (body.reviews ?? []).map((r) => ({
+      externalId: String(r.id ?? ""),
+      productExternalId: String(r.product_external_id ?? ""),
+      productTitle: r.product_title ?? "",
+      reviewerName: r.reviewer?.name?.trim() ?? "",
+      title: r.title ?? "",
+      content: r.body ?? "",
+      rating: typeof r.rating === "number" ? r.rating : 0,
+      createdAt: r.created_at,
+    }));
+
+    // Judge.me returns no total count, so a short page is the only end-of-results signal.
+    return { reviews, hasMore: reviews.length >= perPage };
+  },
+
+  async deleteReview(credentials, externalReviewId) {
+    const { shopDomain, apiToken } = credentials;
+    if (!apiToken) throw new Error("Missing Judge.me API token");
+
+    const url = new URL(`${JUDGE_ME_REVIEWS_ENDPOINT}/${encodeURIComponent(externalReviewId)}`);
+    url.searchParams.set("api_token", apiToken);
+    if (shopDomain) url.searchParams.set("shop_domain", shopDomain);
+
+    const response = await fetch(url, { method: "DELETE" });
+    // A review already gone is the desired end state, not a failure worth aborting the batch for.
+    if (response.status === 404) return;
+    if (!response.ok) {
+      const retryable = response.status === 429 || response.status >= 500;
+      throw new ProviderUploadError(
+        `Judge.me delete failed ${response.status}: ${(await response.text()).slice(0, 200)}`,
+        { status: response.status, retryable },
+      );
+    }
+  },
 };

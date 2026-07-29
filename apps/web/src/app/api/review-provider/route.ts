@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@ai-shopify/db";
-import { apiFailure, apiSuccess, encryptSecret, selectProviderSchema } from "@ai-shopify/shared";
+import { apiFailure, apiSuccess, decryptSecret, encryptSecret, selectProviderSchema } from "@ai-shopify/shared";
 import { getCurrentUser } from "@/lib/auth/session";
 import { zodErrorToFieldErrors } from "@/lib/validation";
 
@@ -64,15 +64,26 @@ export async function PUT(request: Request) {
     data: { isActive: false },
   });
 
+  // Credentials are a JSON blob, so a token can be added without a schema change. An omitted token
+  // must keep whatever is stored — the form sends it blank once saved, same as every other key here.
+  const existing = await prisma.reviewProviderConfig.findUnique({
+    where: { storeId_provider: { storeId: store.id, provider: parsed.data.provider } },
+  });
+  const currentCredentials: Record<string, string> = existing
+    ? (JSON.parse(decryptSecret(existing.credentialsEncrypted, requireEncryptionKey())) as Record<string, string>)
+    : {};
+  if (parsed.data.apiToken) currentCredentials.apiToken = parsed.data.apiToken;
+  const credentialsEncrypted = encryptSecret(JSON.stringify(currentCredentials), requireEncryptionKey());
+
   const config = await prisma.reviewProviderConfig.upsert({
     where: { storeId_provider: { storeId: store.id, provider: parsed.data.provider } },
     create: {
       storeId: store.id,
       provider: parsed.data.provider,
-      credentialsEncrypted: encryptSecret("{}", requireEncryptionKey()),
+      credentialsEncrypted,
       isActive: true,
     },
-    update: { isActive: true },
+    update: { isActive: true, credentialsEncrypted },
   });
 
   return NextResponse.json(apiSuccess({ config }));

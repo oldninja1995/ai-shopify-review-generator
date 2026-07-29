@@ -79,6 +79,7 @@ model ShopifyStore {
   duplicateCheckJobs   DuplicateCheckJob[]
   aiProviderStatuses   AiProviderStatus[]
   aiProviderCredentials AiProviderCredential[]
+  uploadedReviewScans  UploadedReviewScan[]
 
   @@index([userId])
   @@map("shopify_stores")
@@ -535,4 +536,66 @@ model SystemLog {
   @@index([level])
   @@index([createdAt])
   @@map("system_logs")
+}
+
+/// Duplicate detection over reviews that are already live on the review provider.
+///
+/// The existing DuplicateCheckJob only ever sees GeneratedReview rows, and those are removed once
+/// uploaded — so nothing could inspect what actually sits on the storefront. This scans the
+/// provider's own API instead, which is the only view of the published reviews.
+enum UploadedScanStatus {
+  PENDING
+  RUNNING
+  AWAITING_CONFIRMATION
+  COMPLETED
+  DISMISSED
+  FAILED
+  CANCELLED
+}
+
+model UploadedReviewScan {
+  id       String             @id @default(cuid())
+  storeId  String
+  store    ShopifyStore       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  provider ReviewProviderName
+  status   UploadedScanStatus @default(PENDING)
+
+  /// Reviews pulled from the provider so far, and the total once paging has finished.
+  scannedCount Int @default(0)
+  totalCount   Int @default(0)
+  flaggedCount Int @default(0)
+  deletedCount Int @default(0)
+
+  errorMessage String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  flags UploadedReviewFlag[]
+
+  @@index([storeId])
+  @@map("uploaded_review_scans")
+}
+
+/// One published review judged a duplicate of an earlier one on the same product. Deliberately not
+/// linked to GeneratedReview: by the time a review is live its local row is usually long gone, so
+/// the provider's own id is the only durable handle.
+model UploadedReviewFlag {
+  id     String             @id @default(cuid())
+  scanId String
+  scan   UploadedReviewScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  externalReviewId  String
+  productExternalId String
+  productTitle      String
+  reviewerName      String
+  reason            DuplicateFlagReason
+  /// The earlier review on the same product this duplicates — kept, while this one is flagged.
+  keptExternalId    String?
+  contentPreview    String              @db.Text
+  reviewCreatedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([scanId])
+  @@map("uploaded_review_flags")
 }

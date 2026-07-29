@@ -207,3 +207,11 @@ export type DuplicateCheckJobPayload = {
   limit?: number;
   checkMode: DuplicateCheckMode;
 };
+
+export type UploadedScanJobPayload = {
+  scanId: string;
+  storeId: string;
+  /** "scan" pages the provider and flags duplicates; "confirm" deletes what a completed scan
+   * flagged. Both are queued rather than run in a request because each can take many minutes. */
+  action?: "scan" | "confirm";
+};

@@ -4,6 +4,7 @@ export const QUEUE_NAMES = {
   REVIEW_GENERATION: "review-generation",
   REVIEW_UPLOAD: "review-upload",
   DUPLICATE_CHECK: "duplicate-check",
+  UPLOADED_SCAN: "uploaded-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

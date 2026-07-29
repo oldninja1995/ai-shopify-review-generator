@@ -15,6 +15,7 @@ import {
   type DuplicateCheckJobRow,
 } from "@/components/dashboard/duplicate-check-panel";
 import { ReviewUploadPanel } from "@/components/dashboard/review-upload-panel";
+import { UploadedScanPanel } from "@/components/dashboard/uploaded-scan-panel";
 import { resolveReviewStatusFilter } from "@/lib/review-status-filter";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +116,27 @@ export default async function ReviewsPage({
     createdAt: job.createdAt.toISOString(),
   }));
 
+  // Scans of reviews already published on the provider. Same visibility rule as above; wrapped in a
+  // catch so a database without this migration still renders the rest of the page.
+  const uploadedScans = (
+    await prisma.uploadedReviewScan
+      .findMany({
+        where: { storeId: store.id, status: { in: ["PENDING", "RUNNING", "AWAITING_CONFIRMATION"] } },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      })
+      .catch(() => [])
+  ).map((scan) => ({
+    id: scan.id,
+    provider: String(scan.provider),
+    status: String(scan.status),
+    scannedCount: scan.scannedCount,
+    flaggedCount: scan.flaggedCount,
+    deletedCount: scan.deletedCount,
+    errorMessage: scan.errorMessage,
+    createdAt: scan.createdAt.toISOString(),
+  }));
+
   function pageHref(targetPage: number): string {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
@@ -131,6 +153,8 @@ export default async function ReviewsPage({
       <ReviewUploadPanel provider={providerConfig?.provider ?? null} eligibleCount={eligibleCount} />
 
       <DuplicateCheckPanel jobs={duplicateCheckJobs} />
+
+      <UploadedScanPanel initialScans={uploadedScans} />
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">

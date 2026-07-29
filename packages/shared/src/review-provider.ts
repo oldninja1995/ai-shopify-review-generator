@@ -32,6 +32,25 @@ export type ReviewUploadResult = {
   externalReviewId: string;
 };
 
+/** One review as it currently exists on the provider, which is the only view of what a shopper
+ * actually sees — the local GeneratedReview row is typically deleted once uploaded. */
+export type PublishedReview = {
+  externalId: string;
+  productExternalId: string;
+  productTitle: string;
+  reviewerName: string;
+  title: string;
+  content: string;
+  rating: number;
+  createdAt?: string;
+};
+
+export type PublishedReviewPage = {
+  reviews: PublishedReview[];
+  /** False once the provider has no further pages. */
+  hasMore: boolean;
+};
+
 export interface ReviewProvider {
   readonly name: ReviewProviderName;
   verifyCredentials(credentials: ReviewProviderCredentials): Promise<boolean>;
@@ -39,6 +58,14 @@ export interface ReviewProvider {
     credentials: ReviewProviderCredentials,
     payload: ReviewUploadPayload,
   ): Promise<ReviewUploadResult>;
+  /** Optional: not every provider exposes a read API, and the ones that do generally need a
+   * separate token from the one used to publish. Absent means "this provider can't be scanned". */
+  fetchReviews?(
+    credentials: ReviewProviderCredentials,
+    options: { page: number; perPage: number },
+  ): Promise<PublishedReviewPage>;
+  /** Optional: removing a published review. Absent means duplicates can only be reported. */
+  deleteReview?(credentials: ReviewProviderCredentials, externalReviewId: string): Promise<void>;
 }
 
 /** Thrown by a provider plugin's `uploadReview` so callers can tell a transient failure (rate
