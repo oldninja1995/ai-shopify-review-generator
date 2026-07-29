@@ -32,13 +32,31 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       await generateReviewsForProduct(job.data);
       if (job.data.bulkJobId) await recordBulkProgress(job.data.bulkJobId, "completedCount");
     } catch (error) {
-      if (job.data.bulkJobId) await recordBulkProgress(job.data.bulkJobId, "failedCount");
+      // BullMQ retries while `attemptsMade + 1 < opts.attempts`, and attemptsMade counts *finished*
+      // attempts (so it is 0 during the first run) — this is exactly that condition negated.
+      //
+      // The counter must only move on the final attempt. Incrementing per attempt would report
+      // several failures for one product, and because recordBulkProgress marks the whole run
+      // COMPLETED once completedCount + failedCount reaches totalCount, an over-count would also
+      // declare the bulk job finished while thousands of products were still queued.
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      if (job.data.bulkJobId && isFinalAttempt) {
+        await recordBulkProgress(job.data.bulkJobId, "failedCount");
+      }
+
       const product = await prisma.product
         .findUnique({ where: { id: job.data.productId }, include: { store: true } })
         .catch(() => null);
+      const message = error instanceof Error ? error.message : String(error);
+      const label = product?.title ?? job.data.productId;
+
+      // A retryable hiccup is logged at INFO, not ERROR: with retries on, an ERROR line per attempt
+      // would bury the failures that actually stuck, which are the ones worth acting on.
       await logSystemEvent(
-        "ERROR",
-        `Review generation failed for ${product?.title ?? job.data.productId}: ${error instanceof Error ? error.message : String(error)}`,
+        isFinalAttempt ? "ERROR" : "INFO",
+        isFinalAttempt
+          ? `Review generation failed for ${label} after ${job.opts.attempts ?? 1} attempts: ${message}`
+          : `Review generation for ${label} hit an error, will retry: ${message}`,
         { userId: product?.store.userId, metadata: { productId: job.data.productId } },
       );
       throw error;
