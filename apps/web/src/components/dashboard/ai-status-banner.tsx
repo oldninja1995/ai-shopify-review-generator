@@ -1,25 +1,15 @@
 import Link from "next/link";
 import { prisma, findAiSettingsSafe } from "@ai-shopify/db";
-import { GROQ_MODEL_OPTIONS } from "@ai-shopify/shared";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AiProviderStatusCard,
+  type ProviderStatusRow,
+} from "@/components/dashboard/ai-provider-status-card";
 
 // How far back to look for an AI-fallback warning before considering it stale — generation runs
 // happen in bursts (bulk jobs, individual requests), not continuously, so this is a "still likely
 // rate-limited right now" window rather than a strict rolling average.
 const FALLBACK_WARNING_LOOKBACK_MS = 3 * 60 * 60 * 1000;
-
-function groqModelName(id: string): string {
-  return GROQ_MODEL_OPTIONS.find((m) => m.id === id)?.name ?? id;
-}
-
-function formatSince(date: Date): string {
-  const msAgo = Date.now() - date.getTime();
-  const minutes = Math.round(msAgo / (60 * 1000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m ago (${date.toLocaleString()})`;
-}
 
 /** Fetches this store's AI generation health — each configured model's real working/blocked
  * status, plus whether generation has recently been falling back to the phrase-bank generator.
@@ -77,16 +67,16 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
 
   if (!aiSettings?.enabled) return null;
 
-  type Row = { label: string; status: "OK" | "BLOCKED"; blockedSince: Date | null; lastError: string | null };
-  const rows: Row[] = [];
+  const rows: ProviderStatusRow[] = [];
 
   if (aiSettings.apiKeyEncrypted && aiSettings.models.length > 0) {
     for (const modelId of aiSettings.models) {
       const s = statuses.find((row) => row.provider === "openrouter" && row.model === modelId);
       rows.push({
-        label: `OpenRouter — ${modelId}`,
+        provider: "openrouter",
+        model: modelId,
         status: s?.status ?? "OK",
-        blockedSince: s?.blockedSince ?? null,
+        blockedSince: s?.blockedSince?.toISOString() ?? null,
         lastError: s?.lastError ?? null,
       });
     }
@@ -95,9 +85,10 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
   for (const modelId of aiSettings.groqModels) {
     const s = statuses.find((row) => row.provider === "groq" && row.model === modelId);
     rows.push({
-      label: `Groq — ${groqModelName(modelId)}`,
+      provider: "groq",
+      model: modelId,
       status: s?.status ?? "OK",
-      blockedSince: s?.blockedSince ?? null,
+      blockedSince: s?.blockedSince?.toISOString() ?? null,
       lastError: s?.lastError ?? null,
     });
   }
@@ -106,39 +97,7 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-3">
-      {rows.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">AI provider status</CardTitle>
-            <CardDescription>
-              Reflects only what the last real call to each model actually did — not an estimate of
-              remaining quota.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {rows.map((row) => (
-              <div
-                key={row.label}
-                className="flex flex-col gap-1 rounded-lg border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-              >
-                <span className="font-medium">{row.label}</span>
-                {row.status === "OK" ? (
-                  <span className="text-muted-foreground">
-                    <span className="mr-1.5 inline-block size-2 rounded-full bg-emerald-500" />
-                    Working
-                  </span>
-                ) : (
-                  <span className="text-destructive" title={row.lastError ?? undefined}>
-                    <span className="mr-1.5 inline-block size-2 rounded-full bg-destructive" />
-                    Blocked{row.blockedSince ? ` (since ${formatSince(row.blockedSince)})` : ""}
-                    {row.lastError ? ` — ${row.lastError}` : ""}
-                  </span>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      {rows.length > 0 && <AiProviderStatusCard initialRows={rows} />}
 
       {recentFallback && (
         <Card className="border-amber-500/50 bg-amber-500/10 dark:border-amber-400/40 dark:bg-amber-400/10">
