@@ -35,13 +35,41 @@ export function pickWeightedLength(weights: LengthWeights): ReviewLength {
 }
 
 // Only positive (4-5 star) reviews are auto-generated — this app exists to generate reviews that
-// make a store look good, so neither negative nor neutral reviews serve that purpose. There's
-// nothing left to configure a "mix" between, so unlike length (which still varies SHORT/MEDIUM/
-// DETAILED), rating is a fixed, non-configurable pick.
-/** Splits 5-vs-4 star at the same ~69/31 ratio as this app's original hardcoded distribution
- * (55/(55+25)). */
+// make a store look good, so neither negative nor neutral reviews serve that purpose. The 5-vs-4
+// split within that positive band is configurable per batch, the same way length is.
+export const RATING_TIERS = [5, 4] as const;
+export type RatingTier = (typeof RATING_TIERS)[number];
+
+/** Relative weights (need not sum to 100 — normalized at pick time), one per positive star tier. */
+export type RatingWeights = Record<RatingTier, number>;
+
+// Preserves this app's original hardcoded ~69/31 split (55/(55+25)) as the default, so a batch
+// generated without touching the control looks exactly like it did before the setting existed.
+export const DEFAULT_RATING_WEIGHTS: RatingWeights = { 5: 55, 4: 25 };
+
+const ratingWeightsSchema = z.object({
+  5: z.number().min(0),
+  4: z.number().min(0),
+});
+
+/** Picks a single review's star rating from a weighted 5-vs-4 mix. Falls back to 5 if all weights
+ * are 0. */
+export function pickWeightedRating(weights: RatingWeights): number {
+  const total = RATING_TIERS.reduce((sum, tier) => sum + Math.max(0, weights[tier] ?? 0), 0);
+  if (total <= 0) return 5;
+  let roll = Math.random() * total;
+  for (const tier of RATING_TIERS) {
+    const weight = Math.max(0, weights[tier] ?? 0);
+    if (roll < weight) return tier;
+    roll -= weight;
+  }
+  return 5;
+}
+
+/** The default 5-vs-4 split, for jobs queued without explicit weights (including jobs already on
+ * the queue from before this setting existed). */
 export function pickPositiveRating(): number {
-  return Math.random() < 0.6875 ? 5 : 4;
+  return pickWeightedRating(DEFAULT_RATING_WEIGHTS);
 }
 
 export const generateReviewsSchema = z
@@ -53,6 +81,7 @@ export const generateReviewsSchema = z
     lengthMode: z.enum(LENGTH_MODES).default("FIXED"),
     length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
     lengthWeights: lengthWeightsSchema.optional(),
+    ratingWeights: ratingWeightsSchema.optional(),
   })
   .refine((value) => value.maleCount + value.femaleCount > 0, {
     message: "Request at least 1 review",
@@ -68,7 +97,11 @@ export const generateReviewsSchema = z
       (value.lengthWeights &&
         value.lengthWeights.SHORT + value.lengthWeights.MEDIUM + value.lengthWeights.DETAILED > 0),
     { message: "At least one length weight must be greater than 0", path: ["lengthWeights"] },
-  );
+  )
+  .refine((value) => !value.ratingWeights || value.ratingWeights[5] + value.ratingWeights[4] > 0, {
+    message: "At least one rating weight must be greater than 0",
+    path: ["ratingWeights"],
+  });
 export type GenerateReviewsInput = z.infer<typeof generateReviewsSchema>;
 
 export type ReviewGenerationJobPayload = {
@@ -79,6 +112,7 @@ export type ReviewGenerationJobPayload = {
   lengthMode: LengthMode;
   length: ReviewLength;
   lengthWeights?: LengthWeights;
+  ratingWeights?: RatingWeights;
   bulkJobId?: string;
 };
 
@@ -100,6 +134,7 @@ export const bulkGenerateReviewsSchema = z
     lengthMode: z.enum(LENGTH_MODES).default("FIXED"),
     length: z.enum(REVIEW_LENGTHS).default("MEDIUM"),
     lengthWeights: lengthWeightsSchema.optional(),
+    ratingWeights: ratingWeightsSchema.optional(),
   })
   .refine(
     (value) => value.countMode !== "FIXED" || (value.maleCount ?? 0) + (value.femaleCount ?? 0) > 0,
@@ -123,7 +158,11 @@ export const bulkGenerateReviewsSchema = z
       (value.lengthWeights &&
         value.lengthWeights.SHORT + value.lengthWeights.MEDIUM + value.lengthWeights.DETAILED > 0),
     { message: "At least one length weight must be greater than 0", path: ["lengthWeights"] },
-  );
+  )
+  .refine((value) => !value.ratingWeights || value.ratingWeights[5] + value.ratingWeights[4] > 0, {
+    message: "At least one rating weight must be greater than 0",
+    path: ["ratingWeights"],
+  });
 export type BulkGenerateReviewsInput = z.infer<typeof bulkGenerateReviewsSchema>;
 
 export const updateReviewSchema = z.object({

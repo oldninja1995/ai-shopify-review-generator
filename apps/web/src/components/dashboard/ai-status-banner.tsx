@@ -22,9 +22,12 @@ function formatSince(date: Date): string {
 }
 
 /** Fetches this store's AI generation health — each configured model's real working/blocked
- * status, plus whether generation has recently been falling back to the phrase-bank generator —
- * for display on any dashboard page that triggers or shows generated reviews. Self-contained: does
- * its own queries, so it can be dropped into any page without threading data through props.
+ * status, plus whether generation has recently been falling back to the phrase-bank generator.
+ * Rendered only on Settings > AI: it used to also sit on Products and Review Generator, but a
+ * status row goes BLOCKED on any failed call and only clears on a later *success for that same
+ * model*, so models sitting below a working one in the fallback order are never retried and their
+ * stale warnings read as live problems on pages you visit constantly. Self-contained: does its own
+ * queries, so it can be dropped into any page without threading data through props.
  *
  * Purely informational, so on any failure (most notably: the ai_provider_status table or the Groq
  * columns not existing yet because a migration hasn't been applied to this database) it renders

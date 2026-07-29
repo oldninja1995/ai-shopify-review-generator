@@ -5,6 +5,7 @@ import {
   pickGiftRecipient,
   pickPositiveRating,
   pickWeightedLength,
+  pickWeightedRating,
   type ReviewGenerationJobPayload,
   type ReviewLength,
 } from "@ai-shopify/shared";
@@ -95,7 +96,8 @@ async function produceReview(params: ProduceReviewParams): Promise<AssembledRevi
 }
 
 export async function generateReviewsForProduct(payload: ReviewGenerationJobPayload): Promise<void> {
-  const { productId, maleCount, femaleCount, lengthMode, length, lengthWeights } = payload;
+  const { productId, maleCount, femaleCount, lengthMode, length, lengthWeights, ratingWeights } =
+    payload;
 
   const product = await prisma.product.findUniqueOrThrow({
     where: { id: productId },
@@ -235,7 +237,9 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
       reviewer,
       giftRecipient: audience !== "UNISEX" && audience !== gender ? pickGiftRecipient(gender) : undefined,
       reviewLength: lengthMode === "MIXED" && lengthWeights ? pickWeightedLength(lengthWeights) : length,
-      rating: pickPositiveRating(),
+      // Jobs queued before the rating mix was configurable carry no weights — fall back to the
+      // old fixed ~69/31 split rather than skewing an in-flight batch.
+      rating: ratingWeights ? pickWeightedRating(ratingWeights) : pickPositiveRating(),
     });
   }
 
