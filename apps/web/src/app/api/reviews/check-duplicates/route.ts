@@ -26,9 +26,9 @@ export async function GET() {
   }
 
   // Must match the hosting page's filter (dashboard/reviews/page.tsx): this is what the panel
-  // polls every 2s, so a COMPLETED check left in here would reappear the moment it finished.
+  // polls every 2s, so a finished check left in here would reappear the moment it completed.
   const jobs = await prisma.duplicateCheckJob.findMany({
-    where: { storeId: store.id, status: { not: "COMPLETED" } },
+    where: { storeId: store.id, status: { in: ["PENDING", "RUNNING", "AWAITING_CONFIRMATION"] } },
     orderBy: { createdAt: "desc" },
     take: 5,
   });

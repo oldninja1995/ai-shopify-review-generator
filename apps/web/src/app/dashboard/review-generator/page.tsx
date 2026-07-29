@@ -57,10 +57,12 @@ export default async function ReviewGeneratorPage() {
 
   const bulkJobs: BulkJobRow[] = store
     ? (
-        // COMPLETED jobs are excluded so a finished run clears itself out of the panel instead of
-        // lingering forever. FAILED/CANCELLED stay visible — those are outcomes worth noticing.
+        // Only live work is listed — every terminal state (COMPLETED/FAILED/CANCELLED) clears
+        // itself out so the panel is empty whenever nothing is actually running. Allowlisting the
+        // active states rather than excluding the finished ones keeps that true if a new terminal
+        // status is ever added to the enum.
         await prisma.bulkGenerationJob.findMany({
-          where: { storeId: store.id, status: { not: "COMPLETED" } },
+          where: { storeId: store.id, status: { in: ["PENDING", "RUNNING"] } },
           orderBy: { createdAt: "desc" },
           take: 20,
         })

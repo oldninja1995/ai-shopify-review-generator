@@ -27,9 +27,9 @@ export async function GET() {
   }
 
   // Must match the hosting page's filter (dashboard/review-generator/page.tsx): this is what the
-  // panel polls every 2s, so a COMPLETED job left in here would reappear the moment it finished.
+  // panel polls every 2s, so a finished job left in here would reappear the moment it completed.
   const jobs = await prisma.bulkGenerationJob.findMany({
-    where: { storeId: store.id, status: { not: "COMPLETED" } },
+    where: { storeId: store.id, status: { in: ["PENDING", "RUNNING"] } },
     orderBy: { createdAt: "desc" },
     take: 20,
   });
