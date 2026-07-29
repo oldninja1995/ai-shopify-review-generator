@@ -230,7 +230,7 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   };
   const slots: Slot[] = [];
   for (const gender of genderQueue) {
-    const reviewer = await getOrCreateReviewer(product.storeId, gender, usedReviewerIds);
+    const reviewer = await getOrCreateReviewer(product.storeId, gender);
     usedReviewerIds.add(reviewer.id);
     slots.push({
       gender,

@@ -259,22 +259,70 @@ export const FEMALE_FIRST_NAMES = [
   "Priya", "Lakshmi", "Divya", "Kavya", "Meena", "Anitha", "Deepika", "Swathi", "Ramya", "Sneha",
   "Pooja", "Nithya", "Aishwarya", "Radhika", "Shreya", "Vidya", "Bhavana", "Keerthana", "Anjali",
   "Suchitra", "Padma", "Revathi", "Gayathri", "Sowmya", "Vaishnavi", "Harini", "Sindhu", "Roja",
-  "Malini", "Uma",
+  "Malini", "Uma", "Aarthi", "Abirami", "Advika", "Akshara", "Alamelu", "Ambika", "Amrutha",
+  "Ananya", "Anupama", "Aparna", "Archana", "Arundhati", "Ashwini", "Bhargavi", "Bhuvana",
+  "Chandrika", "Charulatha", "Chitra", "Darshini", "Devika", "Dhanya", "Dharani", "Dhivya",
+  "Gowri", "Hamsa", "Hema", "Indira", "Indu", "Ishwarya", "Jaya", "Janani", "Jayanthi", "Jyothi",
+  "Kalpana", "Kamala", "Kanchana", "Kanimozhi", "Karthika", "Kaveri", "Krithika", "Lalitha",
+  "Latha", "Madhuri", "Mahalakshmi", "Mallika", "Manjula", "Meenakshi", "Mythili", "Nagalakshmi",
+  "Nandini", "Navya", "Neelima", "Nirmala", "Nivedita", "Parvathi", "Poornima", "Prathiba",
+  "Preethi", "Rajalakshmi", "Rajeshwari", "Rakhi", "Ranjani", "Rathi", "Renuka", "Rukmini",
+  "Sadhana", "Sahana", "Sandhya", "Sangeetha", "Sarala", "Saranya", "Saraswathi", "Sarita",
+  "Shailaja", "Shakuntala", "Shalini", "Shanthi", "Sharmila", "Shobha", "Shruthi", "Sithara",
+  "Sitalakshmi", "Srividya", "Subhashini", "Sudha", "Sujatha", "Sukanya", "Sumathi", "Sunanda",
+  "Suneetha", "Sushma", "Swarna", "Tamilselvi", "Tanuja", "Thara", "Trisha", "Usha", "Vanaja",
+  "Vandana", "Vasanthi", "Vasugi", "Veena", "Vennila", "Vijaya", "Vimala", "Vinodhini", "Yamini",
+  "Yashoda",
 ];
 
+// Name-bank size is a correctness constraint, not a cosmetic one: the number of distinct reviewers
+// this app can ever produce is first-names x surnames. At 30 x 30 = 900 per gender, a store with
+// hundreds of thousands of reviews had no choice but to repeat names roughly a thousand times each.
+// These lists are sized so that combinations x the initial variant (see reviewer-pool.ts) comfortably
+// exceed the review counts a large catalogue generates.
 export const MALE_FIRST_NAMES = [
   "Ravi", "Kiran", "Suresh", "Arjun", "Karthik", "Naveen", "Vijay", "Prakash", "Ganesh", "Srinivas",
   "Ramesh", "Anand", "Manoj", "Sathish", "Venkat", "Praveen", "Dinesh", "Mahesh", "Rajesh", "Vikram",
   "Krishna", "Aravind", "Balaji", "Chandran", "Gopal", "Hari", "Jayakumar", "Kumar", "Madhavan",
-  "Naresh",
+  "Naresh", "Adithya", "Ajay", "Akhil", "Amrith", "Aniruddh", "Anoop", "Arun", "Ashok", "Ashwin",
+  "Badri", "Bharath", "Bhaskar", "Chetan", "Deepak", "Devaraj", "Dhanush", "Dhruv", "Eshwar",
+  "Gautham", "Girish", "Gokul", "Govind", "Harish", "Hemanth", "Indrajit", "Jagan", "Jaideep",
+  "Janakiraman", "Jeevan", "Kailash", "Kalyan", "Kamesh", "Kannan", "Keshav", "Kishore", "Lakshman",
+  "Lokesh", "Madhan", "Mani", "Manikandan", "Maruthi", "Mohan", "Mukund", "Murali", "Nagarjun",
+  "Nandan", "Narayan", "Nikhil", "Nithin", "Padmanabhan", "Pandurang", "Parthiban", "Pavan",
+  "Prabhakar", "Pradeep", "Pranav", "Prasad", "Prashanth", "Prithvi", "Purushotham", "Raghav",
+  "Raghunath", "Raja", "Rajiv", "Rakesh", "Ranganath", "Ranjith", "Rathish", "Rohit", "Rudresh",
+  "Sabarinath", "Sagar", "Sai", "Sampath", "Sanjay", "Sankar", "Saravanan", "Sasikumar", "Satyanarayan",
+  "Selvam", "Senthil", "Shanmugam", "Sharath", "Shiva", "Shyam", "Sidharth", "Siva", "Sridhar",
+  "Srikanth", "Sriram", "Subash", "Sudhakar", "Sudheer", "Sumanth", "Sundar", "Sunil", "Surya",
+  "Swaminathan", "Tarun", "Thiagarajan", "Thirumalai", "Tilak", "Udhay", "Umesh", "Vaibhav",
+  "Varun", "Vasanth", "Vasudevan", "Vedant", "Veeramani", "Vignesh", "Vinay", "Vinod", "Viswanath",
+  "Yogesh", "Yuvaraj",
 ];
 
 export const LAST_NAMES = [
   "Iyer", "Iyengar", "Reddy", "Naidu", "Nair", "Menon", "Pillai", "Gowda", "Rao", "Shetty",
   "Chettiar", "Achari", "Rajan", "Subramaniam", "Krishnan", "Venkataraman", "Balasubramaniam",
   "Chandrasekaran", "Ramanathan", "Varma", "Acharya", "Bhat", "Kamath", "Shenoy", "Hegde", "Pai",
-  "Prabhu", "Nadar", "Mudaliar", "Pandian",
+  "Prabhu", "Nadar", "Mudaliar", "Pandian", "Adiga", "Ammembal", "Anantharaman", "Ayyar",
+  "Baliga", "Bangera", "Bhandary", "Bhagwat", "Chandran", "Chidambaram", "Damodaran", "Desai",
+  "Devadiga", "Dharmadhikari", "Ganapathy", "Gopalan", "Gopinath", "Govindarajan", "Gundu",
+  "Haldipur", "Hariharan", "Jagannathan", "Jayaraman", "Kadambi", "Kalburgi", "Karanth",
+  "Karunakaran", "Kaushik", "Keshavamurthy", "Kini", "Kodandaram", "Krishnamurthy", "Kudva",
+  "Kulkarni", "Kurup", "Lakshminarayan", "Madhavan", "Mallya", "Maniyan", "Marar", "Mohandas",
+  "Muthiah", "Nagaraj", "Nambiar", "Namboothiri", "Nanjappa", "Narasimhan", "Natarajan",
+  "Nayak", "Padmanabhan", "Palaniappan", "Panicker", "Parthasarathy", "Patwardhan", "Pattabhi",
+  "Perumal", "Pichai", "Poojary", "Radhakrishnan", "Raghavan", "Rajagopal", "Rajaram",
+  "Ramachandran", "Ramakrishnan", "Ramaswamy", "Ranganathan", "Sadasivam", "Sambandam",
+  "Sampath", "Sankaran", "Saravanan", "Sarma", "Seshadri", "Sethuraman", "Sharma", "Sivaraman",
+  "Somayaji", "Sridharan", "Srinivasan", "Sundaram", "Swaminathan", "Thampi", "Thangavelu",
+  "Tharakan", "Thevar", "Udupa", "Unnikrishnan", "Vaidyanathan", "Varier", "Vedantam",
+  "Velayudham", "Venugopal", "Vijayaraghavan", "Viswanathan", "Yajaman",
 ];
+
+/** Initials are idiomatic in South Indian naming ("Praveen R Nair"), which makes them a natural way
+ * to widen the namespace by 26x once plain First+Last combinations start colliding. */
+export const NAME_INITIALS = "ABCDEFGHIJKLMNPRSTUVY".split("");
 
 export const COUNTRIES = ["India"];
 
