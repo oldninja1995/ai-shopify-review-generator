@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { ChevronDown } from "lucide-react";
 import { GROQ_MODEL_OPTIONS } from "@ai-shopify/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { postJson } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 
 export type ProviderStatusRow = {
   provider: string;
@@ -26,8 +28,11 @@ type ModelCheckResult = {
   ok: boolean;
   reason: string;
   detail: string;
+  limitRequests?: string;
   remainingRequests?: string;
+  limitTokens?: string;
   remainingTokens?: string;
+  resetAt?: string;
   resetsIn?: string;
 };
 
@@ -46,11 +51,18 @@ type CheckResponse = {
   selectedGroqModels?: string[];
 };
 
+const PROVIDER_ORDER = ["openrouter", "groq"] as const;
+type ProviderKey = (typeof PROVIDER_ORDER)[number];
+
+const PROVIDER_LABELS: Record<ProviderKey, string> = {
+  openrouter: "OpenRouter",
+  groq: "Groq (fallback)",
+};
+
+// The provider name is now the group header, so repeating it per row would just be noise.
 function modelLabel(provider: string, model: string): string {
-  if (provider === "groq") {
-    return `Groq — ${GROQ_MODEL_OPTIONS.find((m) => m.id === model)?.name ?? model}`;
-  }
-  return `OpenRouter — ${model}`;
+  if (provider === "groq") return GROQ_MODEL_OPTIONS.find((m) => m.id === model)?.name ?? model;
+  return model;
 }
 
 function formatSince(iso: string): string {
@@ -81,6 +93,9 @@ export function AiProviderStatusCard({
   const [rows, setRows] = useState(initialRows);
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState<CheckResponse | null>(null);
+  // Groq starts open (four entries, and it's the fallback people are usually here to verify);
+  // OpenRouter starts collapsed because a configured store can easily have dozens of models.
+  const [open, setOpen] = useState<Record<string, boolean>>({ openrouter: false, groq: true });
 
   async function runCheck() {
     setChecking(true);
@@ -121,6 +136,11 @@ export function AiProviderStatusCard({
   const freshByKey = new Map(checked?.results.map((r) => [`${r.provider}:${r.model}`, r]) ?? []);
   const account = checked?.account;
 
+  const grouped = rows.reduce<Record<string, ProviderStatusRow[]>>((acc, row) => {
+    (acc[row.provider] ??= []).push(row);
+    return acc;
+  }, {});
+
   return (
     <Card>
       <CardHeader>
@@ -158,48 +178,83 @@ export function AiProviderStatusCard({
           </div>
         )}
 
-        {rows.map((row) => {
-          const fresh = freshByKey.get(`${row.provider}:${row.model}`);
-          const limitNote = [
-            fresh?.remainingRequests ? `${fresh.remainingRequests} requests left` : null,
-            fresh?.remainingTokens ? `${fresh.remainingTokens} tokens left` : null,
-            fresh?.resetsIn ? `resets in ${fresh.resetsIn}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
+        {PROVIDER_ORDER.filter((p) => grouped[p]?.length).map((provider) => {
+          const group = grouped[provider] ?? [];
+          const known = group.filter((r) => !r.neverChecked);
+          const working = known.filter((r) => r.status === "OK").length;
+          const isOpen = open[provider] ?? false;
 
           return (
-            <div key={`${row.provider}:${row.model}`} className="rounded-lg border p-3 text-sm">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <span className="font-medium">
-                  {modelLabel(row.provider, row.model)}
-                  {row.selected === false && (
-                    <span className="ml-2 rounded-md border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
-                      not selected
-                    </span>
-                  )}
+            <div key={provider} className="rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setOpen((prev) => ({ ...prev, [provider]: !isOpen }))}
+                className="flex w-full items-center justify-between gap-2 p-3 text-sm hover:bg-muted/40"
+                aria-expanded={isOpen}
+              >
+                <span className="font-medium">{PROVIDER_LABELS[provider]}</span>
+                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {known.length === 0
+                    ? `${group.length} model${group.length === 1 ? "" : "s"} — not checked yet`
+                    : `${working} of ${group.length} working`}
+                  <ChevronDown className={cn("size-4 transition-transform", isOpen && "rotate-180")} />
                 </span>
-                {row.neverChecked ? (
-                  <span className="text-muted-foreground">
-                    <span className="mr-1.5 inline-block size-2 rounded-full bg-muted-foreground/40" />
-                    Not checked yet
-                  </span>
-                ) : row.status === "OK" ? (
-                  <span className="text-muted-foreground">
-                    <span className="mr-1.5 inline-block size-2 rounded-full bg-emerald-500" />
-                    Working
-                  </span>
-                ) : (
-                  <span className="text-destructive">
-                    <span className="mr-1.5 inline-block size-2 rounded-full bg-destructive" />
-                    {fresh?.detail ??
-                      `Blocked${row.blockedSince ? ` (since ${formatSince(row.blockedSince)})` : ""}${
-                        row.lastError ? ` — ${row.lastError}` : ""
-                      }`}
-                  </span>
-                )}
-              </div>
-              {limitNote && <p className="mt-1 text-xs text-muted-foreground">{limitNote}</p>}
+              </button>
+
+              {isOpen && (
+                <div className="space-y-2 border-t p-3">
+                  {group.map((row) => {
+                    const fresh = freshByKey.get(`${row.provider}:${row.model}`);
+                    const limitNote = [
+                      fresh?.remainingRequests
+                        ? `${fresh.remainingRequests}${fresh.limitRequests ? ` / ${fresh.limitRequests}` : ""} requests left`
+                        : null,
+                      fresh?.remainingTokens
+                        ? `${fresh.remainingTokens}${fresh.limitTokens ? ` / ${fresh.limitTokens}` : ""} tokens left`
+                        : null,
+                      fresh?.resetsIn ? `resets in ${fresh.resetsIn}` : null,
+                      fresh?.resetAt ? `(at ${new Date(fresh.resetAt).toLocaleString()})` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+
+                    return (
+                      <div key={`${row.provider}:${row.model}`} className="rounded-lg border p-3 text-sm">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="font-medium">
+                            {modelLabel(row.provider, row.model)}
+                            {row.selected === false && (
+                              <span className="ml-2 rounded-md border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
+                                not selected
+                              </span>
+                            )}
+                          </span>
+                          {row.neverChecked ? (
+                            <span className="text-muted-foreground">
+                              <span className="mr-1.5 inline-block size-2 rounded-full bg-muted-foreground/40" />
+                              Not checked yet
+                            </span>
+                          ) : row.status === "OK" ? (
+                            <span className="text-muted-foreground">
+                              <span className="mr-1.5 inline-block size-2 rounded-full bg-emerald-500" />
+                              Working
+                            </span>
+                          ) : (
+                            <span className="text-destructive">
+                              <span className="mr-1.5 inline-block size-2 rounded-full bg-destructive" />
+                              {fresh?.detail ??
+                                `Blocked${row.blockedSince ? ` (since ${formatSince(row.blockedSince)})` : ""}${
+                                  row.lastError ? ` — ${row.lastError}` : ""
+                                }`}
+                            </span>
+                          )}
+                        </div>
+                        {limitNote && <p className="mt-1 text-xs text-muted-foreground">{limitNote}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}

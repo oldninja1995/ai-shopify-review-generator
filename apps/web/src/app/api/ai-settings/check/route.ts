@@ -42,8 +42,12 @@ export type ModelCheckResult = {
    * will clear. This is what the UI shows; the raw body is deliberately not surfaced. */
   detail: string;
   retryAfterSeconds?: number;
+  limitRequests?: string;
   remainingRequests?: string;
+  limitTokens?: string;
   remainingTokens?: string;
+  /** ISO wall-clock time the quota resets, when the provider gives an absolute epoch. */
+  resetAt?: string;
   resetsIn?: string;
 };
 
@@ -91,17 +95,52 @@ function formatSeconds(total: number): string {
 /** Both providers expose rate-limit state via near-identical headers (OpenRouter follows the same
  * x-ratelimit-* convention Groq uses). Missing headers are normal — plenty of free models send
  * none at all — so every field here is optional rather than defaulted to a guess. */
-function readRateLimitHeaders(headers: Headers) {
-  const retryAfterRaw = headers.get("retry-after");
+function readRateLimitInfo(headers: Headers, body: string) {
+  // Groq sends these as real response headers. OpenRouter does not — on a 429 it buries the same
+  // values inside the JSON error under error.metadata.headers, so both sources are merged here and
+  // the response headers win when present.
+  let meta: Record<string, string> = {};
+  try {
+    const parsed = JSON.parse(body) as { error?: { metadata?: { headers?: Record<string, string> } } };
+    for (const [k, v] of Object.entries(parsed.error?.metadata?.headers ?? {})) {
+      meta[k.toLowerCase()] = String(v);
+    }
+  } catch {
+    meta = {};
+  }
+  const pick = (...names: string[]) => {
+    for (const n of names) {
+      const v = headers.get(n) ?? meta[n];
+      if (v !== null && v !== undefined && v !== "") return v;
+    }
+    return undefined;
+  };
+
+  const retryAfterRaw = pick("retry-after");
   const retryAfter = retryAfterRaw ? Number(retryAfterRaw) : undefined;
-  const resetRaw =
-    headers.get("x-ratelimit-reset-requests") ?? headers.get("x-ratelimit-reset-tokens") ?? undefined;
+
+  // OpenRouter's X-RateLimit-Reset is an absolute epoch (ms); Groq's x-ratelimit-reset-* is a
+  // duration string like "2m59.56s". Only the epoch form can be turned into a wall-clock time.
+  const resetRaw = pick("x-ratelimit-reset", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens");
+  let resetAt: string | undefined;
+  let resetsIn: string | undefined;
+  const resetEpoch = resetRaw ? Number(resetRaw) : NaN;
+  if (Number.isFinite(resetEpoch) && resetEpoch > 1_000_000_000_000) {
+    const date = new Date(resetEpoch);
+    resetAt = date.toISOString();
+    resetsIn = formatSeconds(Math.max(0, (resetEpoch - Date.now()) / 1000));
+  } else if (resetRaw) {
+    resetsIn = resetRaw;
+  }
 
   return {
     retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
-    remainingRequests: headers.get("x-ratelimit-remaining-requests") ?? undefined,
-    remainingTokens: headers.get("x-ratelimit-remaining-tokens") ?? undefined,
-    resetsIn: resetRaw ?? undefined,
+    limitRequests: pick("x-ratelimit-limit", "x-ratelimit-limit-requests"),
+    remainingRequests: pick("x-ratelimit-remaining", "x-ratelimit-remaining-requests"),
+    limitTokens: pick("x-ratelimit-limit-tokens"),
+    remainingTokens: pick("x-ratelimit-remaining-tokens"),
+    resetAt,
+    resetsIn,
   };
 }
 
@@ -124,12 +163,15 @@ async function probeModel(
       signal: controller.signal,
     });
 
-    const limits = readRateLimitHeaders(response.headers);
+    // Read once: the body is needed both for the failure reason and for OpenRouter's rate-limit
+    // values, and a Response body can only be consumed a single time.
+    const body = response.ok ? "" : await response.text().catch(() => "");
+    const limits = readRateLimitInfo(response.headers, body);
     if (response.ok) {
       return { provider, model, ok: true, reason: "ok", httpStatus: response.status, detail: "Working", ...limits };
     }
 
-    const { reason, detail } = classify(response.status, await response.text().catch(() => ""));
+    const { reason, detail } = classify(response.status, body);
     const retrySuffix = limits.retryAfterSeconds ? ` — retry in ${formatSeconds(limits.retryAfterSeconds)}` : "";
     return { provider, model, ok: false, reason, httpStatus: response.status, detail: `${detail}${retrySuffix}`, ...limits };
   } catch (error) {
