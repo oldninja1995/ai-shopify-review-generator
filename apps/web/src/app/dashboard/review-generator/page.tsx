@@ -57,8 +57,10 @@ export default async function ReviewGeneratorPage() {
 
   const bulkJobs: BulkJobRow[] = store
     ? (
+        // COMPLETED jobs are excluded so a finished run clears itself out of the panel instead of
+        // lingering forever. FAILED/CANCELLED stay visible — those are outcomes worth noticing.
         await prisma.bulkGenerationJob.findMany({
-          where: { storeId: store.id },
+          where: { storeId: store.id, status: { not: "COMPLETED" } },
           orderBy: { createdAt: "desc" },
           take: 20,
         })

@@ -92,8 +92,10 @@ export default async function ReviewsPage({
   }));
 
   const duplicateCheckJobs: DuplicateCheckJobRow[] = (
+    // COMPLETED checks are excluded so a finished run clears itself out of the panel instead of
+    // lingering forever. AWAITING_CONFIRMATION (needs a decision), DISMISSED and FAILED stay.
     await prisma.duplicateCheckJob.findMany({
-      where: { storeId: store.id },
+      where: { storeId: store.id, status: { not: "COMPLETED" } },
       orderBy: { createdAt: "desc" },
       take: 5,
     })
