@@ -114,7 +114,10 @@ export function GenerateReviewsDialog({
                         min={0}
                         max={110}
                         {...field}
-                        onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                        value={field.value ?? ""}
+                        onChange={(e) =>
+                          field.onChange(e.target.value === "" ? undefined : e.target.valueAsNumber)
+                        }
                       />
                     </FormControl>
                     <FormMessage />
@@ -133,7 +136,10 @@ export function GenerateReviewsDialog({
                         min={0}
                         max={110}
                         {...field}
-                        onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                        value={field.value ?? ""}
+                        onChange={(e) =>
+                          field.onChange(e.target.value === "" ? undefined : e.target.valueAsNumber)
+                        }
                       />
                     </FormControl>
                     <FormMessage />

@@ -181,7 +181,10 @@ export function BulkGenerateDialog({
                           min={0}
                           max={110}
                           {...field}
-                          onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(e.target.value === "" ? undefined : e.target.valueAsNumber)
+                          }
                         />
                       </FormControl>
                       <FormMessage />
@@ -200,7 +203,10 @@ export function BulkGenerateDialog({
                           min={0}
                           max={110}
                           {...field}
-                          onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(e.target.value === "" ? undefined : e.target.valueAsNumber)
+                          }
                         />
                       </FormControl>
                       <FormMessage />
@@ -222,7 +228,13 @@ export function BulkGenerateDialog({
                           min={1}
                           max={110}
                           {...field}
-                          onChange={(e) => field.onChange(e.target.valueAsNumber || 1)}
+                          // An empty box has to stay empty while you retype it. Coercing NaN to a
+                          // number here (the old `valueAsNumber || 1`) snapped the field back to 1
+                          // the moment you cleared it, so a new value could never be typed.
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(e.target.value === "" ? undefined : e.target.valueAsNumber)
+                          }
                         />
                       </FormControl>
                       <FormMessage />
@@ -241,7 +253,13 @@ export function BulkGenerateDialog({
                           min={1}
                           max={110}
                           {...field}
-                          onChange={(e) => field.onChange(e.target.valueAsNumber || 1)}
+                          // An empty box has to stay empty while you retype it. Coercing NaN to a
+                          // number here (the old `valueAsNumber || 1`) snapped the field back to 1
+                          // the moment you cleared it, so a new value could never be typed.
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(e.target.value === "" ? undefined : e.target.valueAsNumber)
+                          }
                         />
                       </FormControl>
                       <FormMessage />
