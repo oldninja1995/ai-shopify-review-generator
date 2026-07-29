@@ -39,7 +39,11 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       // several failures for one product, and because recordBulkProgress marks the whole run
       // COMPLETED once completedCount + failedCount reaches totalCount, an over-count would also
       // declare the bulk job finished while thousands of products were still queued.
-      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      // BullMQ writes `attempts: 0` (not undefined) when a job is queued without the option, so
+      // `?? 1` alone still yields 0 — hence the floor. Behaviour was already correct either way,
+      // but the log line read "after 0 attempts".
+      const maxAttempts = Math.max(1, job.opts.attempts ?? 1);
+      const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
       if (job.data.bulkJobId && isFinalAttempt) {
         await recordBulkProgress(job.data.bulkJobId, "failedCount");
       }
@@ -55,7 +59,7 @@ export const reviewGenerationWorker = new Worker<ReviewGenerationJobPayload>(
       await logSystemEvent(
         isFinalAttempt ? "ERROR" : "INFO",
         isFinalAttempt
-          ? `Review generation failed for ${label} after ${job.opts.attempts ?? 1} attempts: ${message}`
+          ? `Review generation failed for ${label} after ${maxAttempts} attempt${maxAttempts === 1 ? "" : "s"}: ${message}`
           : `Review generation for ${label} hit an error, will retry: ${message}`,
         { userId: product?.store.userId, metadata: { productId: job.data.productId } },
       );

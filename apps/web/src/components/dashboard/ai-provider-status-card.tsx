@@ -62,7 +62,16 @@ function formatSince(iso: string): string {
  * it in the fallback order is never retried and keeps whatever status it last had, indefinitely.
  * "Check now" is the fix — it probes every configured model directly and rewrites all of them, so
  * a BLOCKED row that has since recovered can be cleared without waiting for a generation run. */
-export function AiProviderStatusCard({ initialRows }: { initialRows: ProviderStatusRow[] }) {
+export function AiProviderStatusCard({
+  initialRows,
+  notice,
+}: {
+  initialRows: ProviderStatusRow[];
+  /** Set when a provider is configured but silently inert — most importantly a saved Groq key with
+   * no models selected, which renders no rows at all and so previously looked identical to "Groq
+   * was never set up". */
+  notice?: string | null;
+}) {
   const [rows, setRows] = useState(initialRows);
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState<CheckResponse | null>(null);
@@ -121,6 +130,12 @@ export function AiProviderStatusCard({ initialRows }: { initialRows: ProviderSta
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        {notice && (
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-200">
+            {notice}
+          </div>
+        )}
+
         {account && (
           <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{account.label}</span>

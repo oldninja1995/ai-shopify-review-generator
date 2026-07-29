@@ -93,11 +93,24 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
     });
   }
 
-  if (rows.length === 0 && !recentFallback) return null;
+  // A Groq fallback that is configured-but-inert renders no rows at all, so without this the card
+  // looked exactly the same as "Groq was never set up" — the state that had a key saved against
+  // zero selected models, silently leaving generation with nothing to fall back to.
+  const groqNotice = !aiSettings.groqColumnsAvailable
+    ? "Groq support isn't available on this deployment yet — its database migration hasn't been applied."
+    : aiSettings.groqApiKeyEncrypted && aiSettings.groqModels.length === 0
+      ? "Groq API key saved, but no Groq models are selected — the fallback stays off until you pick at least one below. A key on its own does nothing."
+      : !aiSettings.groqApiKeyEncrypted
+        ? "No Groq fallback configured. When every OpenRouter model is blocked, generation has nothing left to fall back to."
+        : null;
+
+  if (rows.length === 0 && !groqNotice && !recentFallback) return null;
 
   return (
     <div className="space-y-3">
-      {rows.length > 0 && <AiProviderStatusCard initialRows={rows} />}
+      {(rows.length > 0 || groqNotice) && (
+        <AiProviderStatusCard initialRows={rows} notice={groqNotice} />
+      )}
 
       {recentFallback && (
         <Card className="border-amber-500/50 bg-amber-500/10 dark:border-amber-400/40 dark:bg-amber-400/10">
