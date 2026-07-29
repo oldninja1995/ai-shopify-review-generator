@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma, findAiSettingsSafe } from "@ai-shopify/db";
+import { GROQ_MODEL_OPTIONS } from "@ai-shopify/shared";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AiProviderStatusCard,
@@ -82,15 +83,24 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
     }
   }
 
-  for (const modelId of aiSettings.groqModels) {
-    const s = statuses.find((row) => row.provider === "groq" && row.model === modelId);
-    rows.push({
-      provider: "groq",
-      model: modelId,
-      status: s?.status ?? "OK",
-      blockedSince: s?.blockedSince?.toISOString() ?? null,
-      lastError: s?.lastError ?? null,
-    });
+  // Every Groq model this app offers is listed once a key is saved, not just the selected ones —
+  // Groq's list is four entries, and listing only the selection meant a key with nothing picked
+  // produced no rows at all, which is precisely the state worth seeing. Unselected rows are
+  // flagged so it stays clear they aren't in the fallback chain.
+  if (aiSettings.groqApiKeyEncrypted) {
+    const groqModelIds = [...new Set([...GROQ_MODEL_OPTIONS.map((m) => m.id), ...aiSettings.groqModels])];
+    for (const modelId of groqModelIds) {
+      const s = statuses.find((row) => row.provider === "groq" && row.model === modelId);
+      rows.push({
+        provider: "groq",
+        model: modelId,
+        status: s?.status ?? "OK",
+        blockedSince: s?.blockedSince?.toISOString() ?? null,
+        lastError: s?.lastError ?? null,
+        selected: aiSettings.groqModels.includes(modelId),
+        neverChecked: !s,
+      });
+    }
   }
 
   // A Groq fallback that is configured-but-inert renders no rows at all, so without this the card

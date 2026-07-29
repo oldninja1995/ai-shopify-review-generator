@@ -13,6 +13,11 @@ export type ProviderStatusRow = {
   status: "OK" | "BLOCKED";
   blockedSince: string | null;
   lastError: string | null;
+  /** Groq only: whether this model is actually in the fallback chain. An unselected model can be
+   * perfectly healthy and still never be called during generation. */
+  selected?: boolean;
+  /** No stored status row exists, so "OK" here is a default rather than an observation. */
+  neverChecked?: boolean;
 };
 
 type ModelCheckResult = {
@@ -38,6 +43,7 @@ type CheckResponse = {
   } | null;
   workingCount: number;
   totalCount: number;
+  selectedGroqModels?: string[];
 };
 
 function modelLabel(provider: string, model: string): string {
@@ -87,6 +93,7 @@ export function AiProviderStatusCard({
     }
 
     setChecked(result.data);
+    const selectedGroq = new Set(result.data.selectedGroqModels ?? []);
     setRows(
       result.data.results.map((r) => ({
         provider: r.provider,
@@ -94,6 +101,8 @@ export function AiProviderStatusCard({
         status: r.ok ? ("OK" as const) : ("BLOCKED" as const),
         blockedSince: null,
         lastError: r.ok ? null : r.detail,
+        selected: r.provider === "groq" ? selectedGroq.has(r.model) : undefined,
+        neverChecked: false,
       })),
     );
 
@@ -162,8 +171,20 @@ export function AiProviderStatusCard({
           return (
             <div key={`${row.provider}:${row.model}`} className="rounded-lg border p-3 text-sm">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <span className="font-medium">{modelLabel(row.provider, row.model)}</span>
-                {row.status === "OK" ? (
+                <span className="font-medium">
+                  {modelLabel(row.provider, row.model)}
+                  {row.selected === false && (
+                    <span className="ml-2 rounded-md border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
+                      not selected
+                    </span>
+                  )}
+                </span>
+                {row.neverChecked ? (
+                  <span className="text-muted-foreground">
+                    <span className="mr-1.5 inline-block size-2 rounded-full bg-muted-foreground/40" />
+                    Not checked yet
+                  </span>
+                ) : row.status === "OK" ? (
                   <span className="text-muted-foreground">
                     <span className="mr-1.5 inline-block size-2 rounded-full bg-emerald-500" />
                     Working

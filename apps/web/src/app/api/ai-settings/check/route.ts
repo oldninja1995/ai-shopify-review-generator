@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
 import { prisma, findAiSettingsSafe } from "@ai-shopify/db";
-import { apiFailure, apiSuccess, decryptSecret } from "@ai-shopify/shared";
+import { apiFailure, apiSuccess, decryptSecret, GROQ_MODEL_OPTIONS } from "@ai-shopify/shared";
 import { getCurrentUser } from "@/lib/auth/session";
 
 /** Long enough that a slow-but-alive free model isn't reported as dead, short enough that checking
  * a dozen models can't hang the request. Each model is probed in parallel, so this is the ceiling
  * for the whole check, not per model. */
 const PROBE_TIMEOUT_MS = 12_000;
+
+/** Once a Groq key is saved, every Groq model this app offers is probed — not just the ones picked
+ * for the fallback chain. OpenRouter gets a row per configured model because dozens exist and only
+ * the chosen ones are meaningful; Groq's list is four entries, so showing all of them means the
+ * card has real Working/Blocked rows even before anything is selected. Callers mark the unselected
+ * ones so the card can say they aren't in the chain yet. */
+function groqModelsToProbe(selected: string[]): string[] {
+  return [...new Set([...GROQ_MODEL_OPTIONS.map((m) => m.id), ...selected])];
+}
 
 function requireEncryptionKey(): string {
   const value = process.env.ENCRYPTION_KEY;
@@ -51,17 +60,25 @@ export type AccountInfo = {
  * rate_limited and out_of_credit are quota problems that clear on their own — auth and
  * model_unavailable need you to change something in settings. */
 function classify(status: number, body: string): { reason: CheckReason; detail: string } {
-  const snippet = body.replace(/\s+/g, " ").slice(0, 160);
-  if (status === 429) return { reason: "rate_limited", detail: "Rate limited — quota exhausted for now" };
-  if (status === 402) return { reason: "out_of_credit", detail: "Out of credits on this account" };
+  // Providers put the useful part in error.message — OpenRouter's 404 for a retired :free model
+  // names the replacement slug outright, which a generic "model not found" would throw away.
+  let providerMessage = "";
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } };
+    providerMessage = parsed.error?.message?.replace(/\s+/g, " ").trim() ?? "";
+  } catch {
+    providerMessage = body.replace(/\s+/g, " ").trim();
+  }
+  const suffix = providerMessage ? ` — ${providerMessage.slice(0, 220)}` : "";
+
+  if (status === 429) return { reason: "rate_limited", detail: `Rate limited${suffix}` };
+  if (status === 402) return { reason: "out_of_credit", detail: `Out of credits${suffix}` };
   if (status === 401 || status === 403) {
-    return { reason: "auth", detail: "API key rejected — wrong, revoked or expired" };
+    return { reason: "auth", detail: `API key rejected — wrong, revoked or expired${suffix}` };
   }
-  if (status === 404) {
-    return { reason: "model_unavailable", detail: "Model not found — the id may have been retired" };
-  }
-  if (status >= 500) return { reason: "provider_error", detail: `Provider error ${status}` };
-  return { reason: "provider_error", detail: `Unexpected ${status}${snippet ? `: ${snippet}` : ""}` };
+  if (status === 404) return { reason: "model_unavailable", detail: `Model unavailable${suffix}` };
+  if (status >= 500) return { reason: "provider_error", detail: `Provider error ${status}${suffix}` };
+  return { reason: "provider_error", detail: `Unexpected ${status}${suffix}` };
 }
 
 function formatSeconds(total: number): string {
@@ -185,9 +202,12 @@ export async function POST() {
       targets.push({ provider: "openrouter", baseUrl: "https://openrouter.ai/api/v1", apiKey, model });
     }
   }
-  if (aiSettings.groqApiKeyEncrypted && aiSettings.groqModels.length > 0) {
+  // Note the deliberate asymmetry with OpenRouter above: a saved Groq key is enough, no model
+  // selection required. Otherwise the one state you most need to debug — key saved, nothing picked,
+  // fallback silently inert — is exactly the state that produces no rows to look at.
+  if (aiSettings.groqApiKeyEncrypted) {
     const apiKey = decryptSecret(aiSettings.groqApiKeyEncrypted, encryptionKey);
-    for (const model of aiSettings.groqModels) {
+    for (const model of groqModelsToProbe(aiSettings.groqModels)) {
       targets.push({ provider: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey, model });
     }
   }
@@ -238,6 +258,9 @@ export async function POST() {
       checkedAt: new Date().toISOString(),
       results,
       account,
+      // Lets the card mark probed-but-unselected Groq models: they may well report Working, but
+      // they are not in the fallback chain and will never be called during generation.
+      selectedGroqModels: aiSettings.groqModels,
       workingCount: results.filter((r) => r.ok).length,
       totalCount: results.length,
     }),
