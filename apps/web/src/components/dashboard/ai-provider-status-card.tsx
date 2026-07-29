@@ -51,13 +51,14 @@ type CheckResponse = {
   selectedGroqModels?: string[];
 };
 
-const PROVIDER_ORDER = ["openrouter", "groq"] as const;
-type ProviderKey = (typeof PROVIDER_ORDER)[number];
+/** Built-ins come first because generation tries them in this order; anything else is a
+ * user-configured provider and follows, in the order the server supplied. */
+const BUILT_IN_ORDER = ["openrouter", "groq"];
 
-const PROVIDER_LABELS: Record<ProviderKey, string> = {
-  openrouter: "OpenRouter",
-  groq: "Groq (fallback)",
-};
+function orderProviders(present: string[]): string[] {
+  const builtIns = BUILT_IN_ORDER.filter((p) => present.includes(p));
+  return [...builtIns, ...present.filter((p) => !BUILT_IN_ORDER.includes(p))];
+}
 
 // The provider name is now the group header, so repeating it per row would just be noise.
 function modelLabel(provider: string, model: string): string {
@@ -83,12 +84,15 @@ function formatSince(iso: string): string {
 export function AiProviderStatusCard({
   initialRows,
   notice,
+  providerLabels = {},
 }: {
   initialRows: ProviderStatusRow[];
   /** Set when a provider is configured but silently inert — most importantly a saved Groq key with
    * no models selected, which renders no rows at all and so previously looked identical to "Groq
    * was never set up". */
   notice?: string | null;
+  /** Display names per provider slug, so user-added providers show their own label. */
+  providerLabels?: Record<string, string>;
 }) {
   const [rows, setRows] = useState(initialRows);
   const [checking, setChecking] = useState(false);
@@ -178,7 +182,7 @@ export function AiProviderStatusCard({
           </div>
         )}
 
-        {PROVIDER_ORDER.filter((p) => grouped[p]?.length).map((provider) => {
+        {orderProviders(Object.keys(grouped)).map((provider) => {
           const group = grouped[provider] ?? [];
           const known = group.filter((r) => !r.neverChecked);
           const working = known.filter((r) => r.status === "OK").length;
@@ -192,7 +196,7 @@ export function AiProviderStatusCard({
                 className="flex w-full items-center justify-between gap-2 p-3 text-sm hover:bg-muted/40"
                 aria-expanded={isOpen}
               >
-                <span className="font-medium">{PROVIDER_LABELS[provider]}</span>
+                <span className="font-medium">{providerLabels[provider] ?? provider}</span>
                 <span className="flex items-center gap-2 text-xs text-muted-foreground">
                   {known.length === 0
                     ? `${group.length} model${group.length === 1 ? "" : "s"} — not checked yet`

@@ -139,7 +139,29 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           models: aiSettings.groqModels,
         }
       : undefined;
-  const ai: AiProviderConfig[] = [openRouterAi, groqAi].filter(
+  // Any number of additional OpenAI-compatible providers, tried after the two built-ins. Each is a
+  // separate account with its own quota, which is the only thing that actually raises throughput —
+  // OpenRouter's free models all share one account-wide daily allowance, so adding more of those
+  // buys nothing. Best-effort: a missing table (migration not yet applied) must not stop generation.
+  const customProviders = await prisma.aiProviderCredential
+    .findMany({
+      where: { storeId: product.storeId, enabled: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    })
+    .catch(() => []);
+
+  const customAi: AiProviderConfig[] = aiSettings?.enabled
+    ? customProviders
+        .filter((row) => row.models.length > 0)
+        .map((row) => ({
+          name: row.slug,
+          baseUrl: row.baseUrl.replace(/\/+$/, ""),
+          apiKey: decryptSecret(row.apiKeyEncrypted, env.ENCRYPTION_KEY),
+          models: row.models,
+        }))
+    : [];
+
+  const ai: AiProviderConfig[] = [openRouterAi, groqAi, ...customAi].filter(
     (config): config is AiProviderConfig => Boolean(config),
   );
   const aiOnlyMode = aiSettings?.aiOnlyMode ?? false;

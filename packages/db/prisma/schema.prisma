@@ -78,9 +78,43 @@ model ShopifyStore {
   bulkGenerationJobs   BulkGenerationJob[]
   duplicateCheckJobs   DuplicateCheckJob[]
   aiProviderStatuses   AiProviderStatus[]
+  aiProviderCredentials AiProviderCredential[]
 
   @@index([userId])
   @@map("shopify_stores")
+}
+
+/// An arbitrary OpenAI-compatible provider (Cerebras, Gemini's compat endpoint, SambaNova,
+/// DeepSeek, ...). OpenRouter and Groq stay as dedicated columns on AiSettings for backwards
+/// compatibility; everything added here is tried after both of them.
+///
+/// This exists because provider capacity, not model choice, is the real constraint: OpenRouter's
+/// free models all share one account-wide daily allowance, so adding more of them buys nothing.
+/// Each row here is a separate account with its own quota, and they stack.
+model AiProviderCredential {
+  id      String       @id @default(cuid())
+  storeId String
+  store   ShopifyStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  /// Human-readable, shown in the provider status card, e.g. "Cerebras".
+  label String
+  /// Stable key written to AiProviderStatus.provider — that column is a plain String, so any slug
+  /// works and per-model health tracking comes for free.
+  slug            String
+  /// Root of the OpenAI-compatible API, without the trailing /chat/completions.
+  baseUrl         String
+  apiKeyEncrypted String   @db.Text
+  models          String[] @default([])
+  enabled         Boolean  @default(true)
+  /// Ascending fallback order among custom providers.
+  sortOrder       Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId, slug])
+  @@index([storeId])
+  @@map("ai_provider_credentials")
 }
 
 model BrandSettings {

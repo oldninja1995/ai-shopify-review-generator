@@ -212,7 +212,10 @@ function deriveTitleFromContent(content: string): string {
   return words || "Review";
 }
 
-export type AiProviderName = "openrouter" | "groq";
+/** "openrouter" and "groq" are the built-ins; any other value is the slug of a user-configured
+ * OpenAI-compatible provider (see AiProviderCredential). Kept as a plain string because provider
+ * capacity is the real constraint on this app, and adding a provider must never require a deploy. */
+export type AiProviderName = string;
 
 /** Every configured provider (OpenRouter, Groq, ...) speaks this same OpenAI-compatible
  * chat-completions shape — only the base URL and API key differ. */

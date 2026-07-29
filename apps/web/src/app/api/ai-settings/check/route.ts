@@ -33,7 +33,8 @@ export type CheckReason =
   | "network";
 
 export type ModelCheckResult = {
-  provider: "openrouter" | "groq";
+  /** "openrouter" | "groq" for the built-ins, otherwise a user-configured provider's slug. */
+  provider: string;
   model: string;
   ok: boolean;
   reason: CheckReason;
@@ -148,7 +149,7 @@ function readRateLimitInfo(headers: Headers, body: string) {
  * rate-limited per model, so only an actual generation request proves this key can use this model
  * right now. max_tokens is 1 to keep the cost of checking as close to nothing as possible. */
 async function probeModel(
-  provider: "openrouter" | "groq",
+  provider: string,
   baseUrl: string,
   apiKey: string,
   model: string,
@@ -236,7 +237,7 @@ export async function POST() {
   }
 
   const encryptionKey = requireEncryptionKey();
-  const targets: { provider: "openrouter" | "groq"; baseUrl: string; apiKey: string; model: string }[] = [];
+  const targets: { provider: string; baseUrl: string; apiKey: string; model: string }[] = [];
 
   if (aiSettings.apiKeyEncrypted && aiSettings.models.length > 0) {
     const apiKey = decryptSecret(aiSettings.apiKeyEncrypted, encryptionKey);
@@ -251,6 +252,21 @@ export async function POST() {
     const apiKey = decryptSecret(aiSettings.groqApiKeyEncrypted, encryptionKey);
     for (const model of groqModelsToProbe(aiSettings.groqModels)) {
       targets.push({ provider: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey, model });
+    }
+  }
+
+  // Any user-added OpenAI-compatible providers, probed exactly like the built-ins. Best-effort so
+  // a database without the migration still checks OpenRouter and Groq rather than failing outright.
+  const customProviders = await prisma.aiProviderCredential
+    .findMany({
+      where: { storeId: store.id, enabled: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    })
+    .catch(() => []);
+  for (const row of customProviders) {
+    const apiKey = decryptSecret(row.apiKeyEncrypted, encryptionKey);
+    for (const model of row.models) {
+      targets.push({ provider: row.slug, baseUrl: row.baseUrl, apiKey, model });
     }
   }
 

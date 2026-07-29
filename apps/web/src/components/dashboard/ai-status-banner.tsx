@@ -103,6 +103,35 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
     }
   }
 
+  // User-added OpenAI-compatible providers, listed after the built-ins in the same fallback order
+  // generation uses. Best-effort so a database without the migration still renders the rest.
+  const customProviders = await prisma.aiProviderCredential
+    .findMany({
+      where: { storeId: store.id, enabled: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    })
+    .catch(() => []);
+
+  for (const custom of customProviders) {
+    for (const modelId of custom.models) {
+      const s = statuses.find((row) => row.provider === custom.slug && row.model === modelId);
+      rows.push({
+        provider: custom.slug,
+        model: modelId,
+        status: s?.status ?? "OK",
+        blockedSince: s?.blockedSince?.toISOString() ?? null,
+        lastError: s?.lastError ?? null,
+        neverChecked: !s,
+      });
+    }
+  }
+
+  const providerLabels: Record<string, string> = {
+    openrouter: "OpenRouter",
+    groq: "Groq (fallback)",
+    ...Object.fromEntries(customProviders.map((p) => [p.slug, p.label])),
+  };
+
   // A Groq fallback that is configured-but-inert renders no rows at all, so without this the card
   // looked exactly the same as "Groq was never set up" — the state that had a key saved against
   // zero selected models, silently leaving generation with nothing to fall back to.
@@ -119,7 +148,7 @@ async function AiStatusBannerInner({ userId }: { userId: string }) {
   return (
     <div className="space-y-3">
       {(rows.length > 0 || groqNotice) && (
-        <AiProviderStatusCard initialRows={rows} notice={groqNotice} />
+        <AiProviderStatusCard initialRows={rows} notice={groqNotice} providerLabels={providerLabels} />
       )}
 
       {recentFallback && (

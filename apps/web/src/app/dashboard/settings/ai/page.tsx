@@ -6,6 +6,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { fetchOpenRouterModels } from "@/lib/openrouter";
 import { AiSettingsForm } from "@/components/dashboard/ai-settings-form";
 import { AiStatusBanner } from "@/components/dashboard/ai-status-banner";
+import { AiProvidersForm } from "@/components/dashboard/ai-providers-form";
 
 export default async function AiSettingsPage() {
   const user = await getCurrentUser();
@@ -55,6 +56,8 @@ export default async function AiSettingsPage() {
         models={models}
         groqModelOptions={GROQ_MODEL_OPTIONS}
       />
+
+      <AiProvidersForm />
     </div>
   );
 }
