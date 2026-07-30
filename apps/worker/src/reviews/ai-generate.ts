@@ -371,6 +371,207 @@ function parseReviewOrThrow(rawContent: string, model: string): { title: string;
  * order the user configured them (see the "Fallback order" picker), only moving to the next one
  * once the current one fails. Throws only once every model on every provider has failed — callers
  * then fall back to the phrase-bank generator so a job never hard-fails over this. */
+/** One reviewer's slot in a batched request. */
+export type BatchSlot = {
+  reviewer: AiReviewParams["reviewer"];
+  rating: number;
+  length: ReviewLength;
+  giftRecipient?: string;
+};
+
+/** Shared, per-product half of a batched prompt — the part that would otherwise be re-sent for
+ * every single review. */
+export type BatchContext = {
+  productTitle: string;
+  productType: string;
+  brand?: AiReviewParams["brand"];
+};
+
+/** Asks for several reviews in one call.
+ *
+ * The instruction block is ~590 tokens and is identical for every review of a product. Sending it
+ * once per review means a product needing 55 reviews re-sends ~32,000 tokens of identical rules and
+ * spends 55 requests. Batched, that is one copy of the rules and one request per chunk — the request
+ * saving is the point when a single rate-limited model is all that is working.
+ *
+ * Also fixes something the per-review path cannot: independent calls have no knowledge of each
+ * other, so they converge on the same safe phrasing (the reason BUYER_PERSONAS exists). In a batch
+ * the model can see the siblings it is writing and differentiate them deliberately. */
+export function buildBatchPrompt(context: BatchContext, slots: BatchSlot[]): string {
+  const { productTitle, productType, brand } = context;
+  const usableUsp = brand?.usp && isUsableUspPhrase(brand.usp) ? brand.usp : undefined;
+  const brandContext = brand?.name
+    ? `The store/brand is called "${brand.name}"${brand.category ? ` (a ${brand.category} brand)` : ""}.${
+        usableUsp ? ` Something that sets this brand apart: this brand ${usableUsp}.` : ""
+      }`
+    : "";
+
+  const roster = slots
+    .map((slot, index) => {
+      const gift = slot.giftRecipient
+        ? ` — bought as a GIFT for their ${slot.giftRecipient}, so write about the ${slot.giftRecipient}'s reaction, not their own use`
+        : "";
+      return `${index + 1}. ${slot.reviewer.name}, ${slot.reviewer.gender === "MALE" ? "male" : "female"}, ${slot.reviewer.ageGroup}, ${slot.reviewer.occupation}, ${slot.reviewer.country} — ${slot.rating}/5 stars, ${LENGTH_GUIDANCE[slot.length]}, writing as ${pickRandom(BUYER_PERSONAS)}, focusing on ${pickRandom(FOCUS_ANGLES)}${gift}`;
+    })
+    .join("\n");
+
+  return `You are writing ${slots.length} separate product reviews, each by a different real customer. Output nothing except the reviews themselves — no notes, no explanation, no restating these instructions.
+
+Product: "${productTitle}" (a ${productType}).
+${brandContext}
+
+Reviewers (write one review for each, in this order):
+${roster}
+
+CRITICAL: these must read like ${slots.length} genuinely different people. Do not reuse sentence structures, openings, or phrasing between them. Vary length, tone, vocabulary and what each person notices. Two reviews that could be swapped for each other are a failure.
+
+Every review must be entirely positive — never mention a flaw, complaint or anything that could be improved, even minor. For a 4-star reviewer express it only through a calmer, less superlative tone, never by naming a shortcoming.
+
+Write in first person, casual and human, with the natural imperfections of real reviews (contractions, informal phrasing, slightly imperfect grammar is fine). Refer to the item as "it" or "this ${productType}" rather than repeating its full name, and only mention the brand where it feels natural. Do not open with "I bought this" or "I recently purchased". Never state a numeric rating inside the text. No emojis, no quotation marks. Avoid these phrases entirely: ${BANNED_PHRASES.join(", ")}.
+
+Respond with ONLY a JSON array of exactly ${slots.length} objects, in reviewer order:
+[{"title": "short headline, under 8 words", "content": "the review text"}, ...]`;
+}
+
+/** Parses a batched response into per-slot results, aligned by position.
+ *
+ * Returns nulls rather than throwing for anything unusable — a model returning 9 good reviews out of
+ * 12 should yield those 9, with the caller filling the rest individually. Discarding a whole batch
+ * over one malformed entry would waste the request that was the reason for batching. */
+export function parseBatchResponse(raw: string, expected: number): ({ title: string; content: string } | null)[] {
+  const results: ({ title: string; content: string } | null)[] = new Array(expected).fill(null);
+
+  // Models frequently wrap the array in prose or a code fence; take the outermost bracketed span.
+  const start = raw.indexOf("[");
+  const end = raw.lastIndexOf("]");
+  if (start === -1 || end <= start) return results;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return results;
+  }
+  if (!Array.isArray(parsed)) return results;
+
+  for (let i = 0; i < Math.min(expected, parsed.length); i++) {
+    const entry = parsed[i] as { title?: unknown; content?: unknown } | null;
+    if (!entry || typeof entry !== "object") continue;
+    const content = typeof entry.content === "string" ? entry.content.trim() : "";
+    if (!content || looksUnusable(content)) continue;
+    const title =
+      typeof entry.title === "string" && entry.title.trim() && !looksUnusable(entry.title)
+        ? entry.title.trim()
+        : deriveTitleFromContent(content);
+    results[i] = { title, content };
+  }
+  return results;
+}
+
+/** Rejects reviews that are too close to a sibling in the same batch.
+ *
+ * The content-hash check elsewhere only catches byte-identical duplicates, so "Beautiful pendant,
+ * arrived quickly" and "Beautiful bracelet, arrived quickly" both pass it. Within one batch that
+ * kind of parallel phrasing is the specific risk of generating many reviews in a single pass, and it
+ * would land as a visible cluster on one product page. Anything caught here is nulled and
+ * regenerated individually instead. */
+export function screenBatchSimilarity(
+  batch: ({ title: string; content: string } | null)[],
+): ({ title: string; content: string } | null)[] {
+  const normalise = (text: string) => text.toLowerCase().replace(/[^a-z0-9 ]/g, "").split(/\s+/).filter(Boolean);
+  const kept: string[][] = [];
+
+  return batch.map((entry) => {
+    if (!entry) return null;
+    const words = normalise(entry.content);
+    if (words.length === 0) return null;
+
+    const opening = words.slice(0, 4).join(" ");
+    for (const previous of kept) {
+      if (previous.slice(0, 4).join(" ") === opening) return null;
+      const overlap = words.filter((w) => previous.includes(w)).length / words.length;
+      if (overlap > 0.7) return null;
+    }
+    kept.push(words);
+    return entry;
+  });
+}
+
+/** Runs a batched request through the provider chain, with the same cooldown, usage accounting and
+ * fallback ordering as a single review. Returns per-slot results; nulls are the caller's to fill. */
+export async function generateReviewBatchWithAI(
+  providers: AiProviderConfig[],
+  context: BatchContext,
+  slots: BatchSlot[],
+  onQuotaInfo?: (event: ProviderQuotaEvent) => void,
+): Promise<({ title: string; content: string } | null)[]> {
+  const prompt = buildBatchPrompt(context, slots);
+  // Output scales with the batch, unlike a single review — roughly 60 tokens each plus headroom.
+  const maxTokens = Math.min(4000, 120 * slots.length);
+
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      if (isModelBlocked(provider.name, model)) continue;
+      try {
+        const response = await fetchWithTimeout(`${provider.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: maxTokens,
+            temperature: 1.0,
+          }),
+        });
+
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          const retryAfter = Number(response.headers.get("retry-after"));
+          noteModelFailure(provider.name, model, response.status, Number.isFinite(retryAfter) ? retryAfter : undefined);
+          onQuotaInfo?.({
+            provider: provider.name,
+            model,
+            ok: false,
+            error: `${response.status} ${body}`.slice(0, 500),
+          });
+          continue;
+        }
+
+        const data = (await response.json()) as {
+          choices?: { message?: { content?: string } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
+        noteModelSuccess(provider.name, model);
+        onQuotaInfo?.({ provider: provider.name, model, ok: true });
+        if (data.usage) {
+          noteTokenUsage(
+            provider.name,
+            model,
+            data.usage.prompt_tokens ?? 0,
+            data.usage.completion_tokens ?? 0,
+          );
+        }
+
+        const parsed = parseBatchResponse(data.choices?.[0]?.message?.content ?? "", slots.length);
+        const screened = screenBatchSimilarity(parsed);
+        // A response yielding nothing usable is worse than useless — move on rather than reporting
+        // success for a batch the caller would have to regenerate in full anyway.
+        if (screened.some(Boolean)) return screened;
+      } catch (error) {
+        noteModelFailure(provider.name, model, 0);
+        onQuotaInfo?.({
+          provider: provider.name,
+          model,
+          ok: false,
+          error: `network error: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+  }
+
+  return new Array(slots.length).fill(null);
+}
+
 export async function generateReviewWithAI(
   providers: AiProviderConfig[],
   params: Omit<AiReviewParams, "apiKey">,

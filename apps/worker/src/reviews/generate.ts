@@ -10,7 +10,12 @@ import {
   type ReviewLength,
 } from "@ai-shopify/shared";
 import { assembleReview, type AssembledReview } from "./assemble-review.js";
-import { generateReviewWithAI, type AiProviderConfig, type ProviderQuotaEvent } from "./ai-generate.js";
+import {
+  generateReviewBatchWithAI,
+  generateReviewWithAI,
+  type AiProviderConfig,
+  type ProviderQuotaEvent,
+} from "./ai-generate.js";
 import { analyzeProductAudienceFromImage } from "./vision-audience.js";
 import { hashReviewContent } from "./content-hash.js";
 import { getOrCreateReviewer } from "./reviewer-pool.js";
@@ -18,6 +23,9 @@ import { env } from "../env.js";
 import { logSystemEvent } from "../logging.js";
 
 const MAX_HASH_RETRIES = 2;
+/** Reviews requested per API call. Small enough that one malformed or truncated response costs
+ * little, large enough that a 55-review product drops from 55 requests to ~5. */
+const BATCH_SIZE = 12;
 const MAX_REVIEW_AGE_DAYS = 180;
 
 /** Picks a uniformly random instant within the lookback window, not just a random day — otherwise
@@ -303,8 +311,46 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   // still shared across these concurrent tasks; a same-batch content collision is possible in the
   // (rare) case two slots finish at nearly the same instant, but that's a cosmetic risk the
   // per-product duplicate-check job (see duplicate-check.worker.ts) already catches and cleans up.
+  // Batched pre-pass: ask for BATCH_SIZE reviews per request instead of one. A product needing 55
+  // reviews costs ~5 requests instead of 55, and sends the ~590-token instruction block 5 times
+  // instead of 55. With a single rate-limited model working, the request saving is what decides
+  // whether a run finishes. Anything the batch can't fill drops through to the per-review path
+  // below unchanged, so the worst case is exactly the old behaviour.
+  const batched = new Map<number, { title: string; content: string }>();
+  if (ai.length > 0) {
+    const chunks: { start: number; slots: typeof slots }[] = [];
+    for (let i = 0; i < slots.length; i += BATCH_SIZE) {
+      chunks.push({ start: i, slots: slots.slice(i, i + BATCH_SIZE) });
+    }
+    // Chunks run sequentially: they contend for the same handful of working models, and firing them
+    // in parallel just converts a rate limit into a wall of 429s.
+    for (const chunk of chunks) {
+      const results = await generateReviewBatchWithAI(
+        ai,
+        { productTitle: product.title, productType: effectiveProductType, brand },
+        chunk.slots.map((slot) => ({
+          reviewer: {
+            name: slot.reviewer.name,
+            gender: slot.reviewer.gender,
+            ageGroup: slot.reviewer.ageGroup,
+            occupation: slot.reviewer.occupation,
+            country: slot.reviewer.country,
+          },
+          rating: slot.rating,
+          length: slot.reviewLength,
+          giftRecipient: slot.giftRecipient,
+        })),
+        persistQuotaEvent,
+      ).catch(() => [] as (null | { title: string; content: string })[]);
+
+      results.forEach((result, offset) => {
+        if (result) batched.set(chunk.start + offset, result);
+      });
+    }
+  }
+
   await Promise.all(
-    slots.map(async ({ reviewer, giftRecipient, reviewLength, rating }) => {
+    slots.map(async ({ reviewer, giftRecipient, reviewLength, rating }, slotIndex) => {
       try {
         const reviewerPersona = {
           name: reviewer.name,
@@ -314,20 +360,26 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           country: reviewer.country,
         };
 
-        let produced = await produceReview({
-          productType: effectiveProductType,
-          productTitle: product.title,
-          rating,
-          length: reviewLength,
-          brand,
-          reviewer: reviewerPersona,
-          excludeCombos: usedCombos,
-          ai,
-          aiOnlyMode,
-          onAiFallback: warnAiFallbackOnce,
-          onQuotaInfo: persistQuotaEvent,
-          giftRecipient,
-        });
+        // Use what the batch already produced for this slot; only slots it couldn't fill cost an
+        // individual request. The batch result still goes through every check below — hash dedupe,
+        // retry, storage — so nothing about validation depends on how the text was obtained.
+        const fromBatch = batched.get(slotIndex);
+        let produced = fromBatch
+          ? { ...fromBatch, comboKey: `ai:${hashReviewContent(fromBatch.content)}` }
+          : await produceReview({
+              productType: effectiveProductType,
+              productTitle: product.title,
+              rating,
+              length: reviewLength,
+              brand,
+              reviewer: reviewerPersona,
+              excludeCombos: usedCombos,
+              ai,
+              aiOnlyMode,
+              onAiFallback: warnAiFallbackOnce,
+              onQuotaInfo: persistQuotaEvent,
+              giftRecipient,
+            });
         if (produced === null) {
           skippedCount++;
           return;
