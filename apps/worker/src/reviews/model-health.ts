@@ -70,3 +70,37 @@ export function isModelBlocked(provider: string, model: string): boolean {
 export function blockedCount(): number {
   return blocked.size;
 }
+
+/** Rolling token spend per provider+model for this worker process.
+ *
+ * Tracked because the binding constraint on a bulk run is tokens, not requests: a free tier with
+ * 14,400 requests/day but 500k tokens/day runs dry after roughly 700 reviews at ~700 tokens each.
+ * Requests-remaining headers therefore give a badly optimistic picture of how far a run can get. */
+type Usage = { prompt: number; completion: number; calls: number };
+const usage = new Map<string, Usage>();
+
+export function noteTokenUsage(
+  provider: string,
+  model: string,
+  promptTokens: number,
+  completionTokens: number,
+): void {
+  const key = keyFor(provider, model);
+  const current = usage.get(key) ?? { prompt: 0, completion: 0, calls: 0 };
+  current.prompt += Number.isFinite(promptTokens) ? promptTokens : 0;
+  current.completion += Number.isFinite(completionTokens) ? completionTokens : 0;
+  current.calls += 1;
+  usage.set(key, current);
+}
+
+export function usageSnapshot(): { provider: string; model: string; total: number; calls: number }[] {
+  return [...usage.entries()].map(([key, u]) => {
+    const idx = key.indexOf(":");
+    return {
+      provider: key.slice(0, idx),
+      model: key.slice(idx + 1),
+      total: u.prompt + u.completion,
+      calls: u.calls,
+    };
+  });
+}

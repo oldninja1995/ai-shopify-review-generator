@@ -195,7 +195,26 @@ export function AiSettingsForm({
           </div>
 
           <div className="space-y-2">
-            <Label>Add a model</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>Add a model</Label>
+              {freeModels.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => setSelected((prev) => [...new Set([...prev, ...freeModels.map((m) => m.id)])])}
+                >
+                  Add all {freeModels.length} free
+                </Button>
+              )}
+            </div>
+            {/* Worth knowing before clicking: OpenRouter's free models share ONE account-wide daily
+                allowance, so adding more of them does not raise the ceiling — it only adds fallback
+                choices for when individual models are rate limited. */}
+            <p className="text-xs text-muted-foreground">
+              Free OpenRouter models share a single account-wide daily limit, so adding more gives
+              you fallbacks rather than extra capacity.
+            </p>
             <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border p-2">
               {models.length === 0 && (
                 <p className="p-2 text-sm text-muted-foreground">Could not load models from OpenRouter.</p>

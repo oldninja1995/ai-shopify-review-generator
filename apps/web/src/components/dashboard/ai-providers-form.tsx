@@ -35,6 +35,8 @@ export function AiProvidersForm() {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discovered, setDiscovered] = useState<{ id: string; isFree?: boolean }[] | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -54,6 +56,37 @@ export function AiProvidersForm() {
       apiKey: "",
       models: preset.suggestedModels.join(", "),
     });
+  }
+
+  /** Asks the provider what it can actually run today, rather than trusting the preset list — ids
+   * get renamed and retired constantly, which is how a configured model ends up 404-ing. */
+  async function discoverModels() {
+    setDiscovering(true);
+    setDiscovered(null);
+    const result = await postJson<{ models: { id: string; isFree?: boolean }[]; freeCount: number }>(
+      "/api/ai-providers/models",
+      { slug: form.slug, baseUrl: form.baseUrl, apiKey: form.apiKey.trim() || undefined },
+    );
+    setDiscovering(false);
+    if (!result.success) {
+      toast.error(result.error.message);
+      return;
+    }
+    setDiscovered(result.data.models);
+    toast.success(
+      result.data.freeCount > 0
+        ? `${result.data.models.length} models (${result.data.freeCount} free)`
+        : `${result.data.models.length} models available`,
+    );
+  }
+
+  function addDiscovered(ids: string[]) {
+    const current = form.models
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean);
+    const merged = [...new Set([...current, ...ids])];
+    setForm((f) => ({ ...f, models: merged.join(", ") }));
   }
 
   async function save() {
@@ -196,6 +229,52 @@ export function AiProvidersForm() {
             <p className="text-xs text-muted-foreground">
               Comma separated, tried in order. A provider with no models is never called.
             </p>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                disabled={discovering || !form.baseUrl}
+                onClick={discoverModels}
+              >
+                {discovering ? "Loading..." : "Load models from provider"}
+              </Button>
+              {discovered && discovered.some((m) => m.isFree) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => addDiscovered(discovered.filter((m) => m.isFree).map((m) => m.id))}
+                >
+                  Add all free ({discovered.filter((m) => m.isFree).length})
+                </Button>
+              )}
+              {discovered && (
+                <Button type="button" variant="ghost" size="xs" onClick={() => setDiscovered(null)}>
+                  Hide list
+                </Button>
+              )}
+            </div>
+
+            {discovered && (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border p-2">
+                {discovered.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Provider returned no models.</p>
+                )}
+                {discovered.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => addDiscovered([m.id])}
+                    className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-muted/50"
+                  >
+                    <span className="truncate">{m.id}</span>
+                    {m.isFree === true && <span className="shrink-0 text-emerald-600">free</span>}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <Button onClick={save} disabled={saving || !form.label || !form.slug || !form.baseUrl}>

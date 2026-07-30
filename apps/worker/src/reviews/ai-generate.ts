@@ -1,6 +1,16 @@
 import { isUsableUspPhrase, type ReviewLength } from "@ai-shopify/shared";
 import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
-import { isModelBlocked, noteModelFailure, noteModelSuccess } from "./model-health.js";
+import { cohereChat } from "./cohere-adapter.js";
+import {
+  isModelBlocked,
+  noteModelFailure,
+  noteModelSuccess,
+  noteTokenUsage,
+} from "./model-health.js";
+
+/** Upper bound on honouring a 429 retry-after in place. Beyond this it is a daily cap, not a
+ * per-minute one, and holding a concurrency slot open for it would stall the batch. */
+const MAX_INLINE_RETRY_WAIT_S = 20;
 
 // Kept deliberately short across all three tiers — real customer reviews are almost always brief,
 // and even the "long" tier should read as a slightly fuller quick review, not a paragraph.
@@ -266,6 +276,22 @@ async function generateReviewWithModel(
 ): Promise<{ title: string; content: string }> {
   const prompt = buildPrompt(params);
 
+  // Non-OpenAI-compatible providers take a dedicated path but rejoin the shared parsing, cooldown
+  // and usage bookkeeping below, so each one stays a single small adapter file. Detected from the
+  // base URL rather than a stored column, so adding one needs no migration.
+  if (/(^|\.)api\.cohere\.com/.test(baseUrl)) {
+    const outcome = await cohereChat(baseUrl, apiKey, model, prompt, 600);
+    if (!outcome.ok) {
+      noteModelFailure(provider, model, outcome.status, outcome.retryAfter);
+      onQuotaInfo?.({ provider, model, ok: false, error: `${outcome.status} ${outcome.body}`.slice(0, 500) });
+      throw new Error(`Request failed for ${model}: ${outcome.status} ${outcome.body}`);
+    }
+    noteModelSuccess(provider, model);
+    onQuotaInfo?.({ provider, model, ok: true });
+    noteTokenUsage(provider, model, outcome.result.promptTokens, outcome.result.completionTokens);
+    return parseReviewOrThrow(outcome.result.content, model);
+  }
+
   let response: Response;
   try {
     response = await callChatCompletions(baseUrl, apiKey, model, prompt, true);
@@ -285,6 +311,18 @@ async function generateReviewWithModel(
     throw error;
   }
 
+  // A 429 with a short retry-after is worth waiting out in place: per-minute limits are the common
+  // case and clear in seconds, whereas failing the model over would push the whole batch onto a
+  // worse model (or the phrase bank) for a limit that was about to lift. Long waits are not held —
+  // that is a daily cap, and the cooldown handles it.
+  if (response.status === 429) {
+    const retryAfterSeconds = Number(response.headers.get("retry-after"));
+    if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 && retryAfterSeconds <= MAX_INLINE_RETRY_WAIT_S) {
+      await new Promise((resolve) => setTimeout(resolve, retryAfterSeconds * 1000));
+      response = await callChatCompletions(baseUrl, apiKey, model, prompt, true);
+    }
+  }
+
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
     const retryAfter = Number(response.headers.get("retry-after"));
@@ -298,8 +336,22 @@ async function generateReviewWithModel(
 
   const data = (await response.json()) as {
     choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  const raw = data.choices?.[0]?.message?.content?.trim();
+
+  // Recorded per provider+model so the real ceiling is visible. Token allowances, not request
+  // allowances, are what a bulk run actually exhausts.
+  if (data.usage) {
+    noteTokenUsage(provider, model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0);
+  }
+  return parseReviewOrThrow(data.choices?.[0]?.message?.content ?? "", model);
+}
+
+/** Turns whatever a model returned into a usable review, or throws so the caller moves on to the
+ * next model. Shared by the OpenAI-compatible path and every dedicated adapter, so response-shape
+ * differences between providers never turn into differences in what counts as a valid review. */
+function parseReviewOrThrow(rawContent: string, model: string): { title: string; content: string } {
+  const raw = rawContent.trim();
   if (!raw) throw new Error(`No content returned for ${model}`);
 
   const jsonReview = extractJsonReview(raw);
