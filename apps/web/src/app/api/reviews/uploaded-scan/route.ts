@@ -34,6 +34,7 @@ export async function GET() {
         flaggedCount: s.flaggedCount,
         deletedCount: s.deletedCount,
         errorMessage: s.errorMessage,
+        updatedAt: s.updatedAt.toISOString(),
         createdAt: s.createdAt.toISOString(),
       })),
     }),
@@ -60,14 +61,33 @@ export async function POST() {
     );
   }
 
+  // A scan whose row says RUNNING is not necessarily alive. BullMQ abandons a job that stalls more
+  // than maxStalledCount times — which a couple of worker deploys during a long scan will cause — and
+  // the row is then left RUNNING forever with no queue entry behind it. That state used to block
+  // every future scan, since the button and this check both treat it as active.
+  //
+  // The worker touches updatedAt on every page, so a stale timestamp is a reliable death signal.
+  // Anything quiet for longer than this is retired rather than trusted.
+  const STALE_AFTER_MS = 10 * 60 * 1000;
   const active = await prisma.uploadedReviewScan
     .findFirst({
       where: { storeId: store.id, status: { in: ["PENDING", "RUNNING"] } },
     })
     .catch(() => null);
+
   if (active) {
-    return NextResponse.json(apiFailure("A scan is already running", { code: "ALREADY_RUNNING" }), {
-      status: 409,
+    const quietFor = Date.now() - active.updatedAt.getTime();
+    if (quietFor < STALE_AFTER_MS) {
+      return NextResponse.json(apiFailure("A scan is already running", { code: "ALREADY_RUNNING" }), {
+        status: 409,
+      });
+    }
+    await prisma.uploadedReviewScan.update({
+      where: { id: active.id },
+      data: {
+        status: "FAILED",
+        errorMessage: `No progress for ${Math.round(quietFor / 60000)} minutes — the scan was interrupted (usually a worker restart) and dropped from the queue.`,
+      },
     });
   }
 

@@ -25,6 +25,7 @@ type ScanRow = {
   flaggedCount: number;
   deletedCount: number;
   errorMessage: string | null;
+  updatedAt?: string;
   createdAt: string;
 };
 
@@ -73,7 +74,14 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
   const [flags, setFlags] = useState<FlagRow[] | null>(null);
   const [confirming, setConfirming] = useState(false);
 
-  const hasActive = scans.some((s) => s.status === "PENDING" || s.status === "RUNNING");
+  // Deliberately not just "is any scan PENDING/RUNNING": a scan dropped from the queue by a worker
+  // restart keeps that status forever, and treating it as active disabled this button permanently.
+  // A scan that hasn't moved in 10 minutes is presumed dead; starting a new one retires it.
+  const hasActive = scans.some(
+    (s) =>
+      (s.status === "PENDING" || s.status === "RUNNING") &&
+      Date.now() - new Date(s.updatedAt ?? s.createdAt).getTime() < 10 * 60 * 1000,
+  );
 
   useEffect(() => {
     if (!hasActive) return;

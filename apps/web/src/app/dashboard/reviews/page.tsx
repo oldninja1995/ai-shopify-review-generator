@@ -131,6 +131,7 @@ export default async function ReviewsPage({
     flaggedCount: scan.flaggedCount,
     deletedCount: scan.deletedCount,
     errorMessage: scan.errorMessage,
+    updatedAt: scan.updatedAt.toISOString(),
     createdAt: scan.createdAt.toISOString(),
   }));
 
