@@ -105,6 +105,21 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
       const { reviews, hasMore } = await provider.fetchReviews(credentials, { page, perPage: PAGE_SIZE });
       scanned += reviews.length;
 
+      // Judge.me caps pagination at page 100 and then silently re-serves page 100 forever — a full
+      // page every time, so `hasMore` never turns false. Counting new ids is the only reliable
+      // terminator: a page that contributes nothing new means the feed has stopped advancing,
+      // whatever the provider claims. Without this the loop ran to page 5,000, re-reading the same
+      // 100 reviews 4,900 times.
+      const newInThisPage = reviews.filter((r) => r.externalId && !processedReviewIds.has(r.externalId)).length;
+      if (page > 1 && newInThisPage === 0) {
+        await logSystemEvent(
+          "INFO",
+          `Uploaded-review scan stopped at page ${page}: the provider returned no further new reviews. ${processedReviewIds.size} distinct reviews reachable via its API.`,
+          { metadata: { scanId, page } },
+        );
+        break;
+      }
+
       for (const review of reviews) {
         if (!review.productExternalId || !review.externalId) continue;
 
