@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@ai-shopify/db";
+import { decryptSecret } from "@ai-shopify/shared";
 import { getCurrentUser } from "@/lib/auth/session";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ReviewProviderForm } from "@/components/dashboard/review-provider-form";
@@ -35,10 +36,24 @@ export default async function ReviewProviderPage() {
     where: { storeId: store.id, isActive: true },
   });
 
+  // Only whether a token exists is passed to the client, never the token itself. Decryption can
+  // fail on a key rotation, and that must not take the page down.
+  let hasApiToken = false;
+  if (config) {
+    try {
+      const credentials = JSON.parse(
+        decryptSecret(config.credentialsEncrypted, process.env.ENCRYPTION_KEY ?? ""),
+      ) as Record<string, string>;
+      hasApiToken = Boolean(credentials.apiToken);
+    } catch {
+      hasApiToken = false;
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Review Provider</h1>
-      <ReviewProviderForm initialProvider={config?.provider ?? null} />
+      <ReviewProviderForm initialProvider={config?.provider ?? null} hasApiToken={hasApiToken} />
     </div>
   );
 }

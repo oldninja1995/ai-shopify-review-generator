@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
@@ -19,7 +19,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { putJson } from "@/lib/api-client";
 
 const PROVIDER_INFO: Record<ReviewProviderName, { label: string; description: string }> = {
@@ -45,15 +46,27 @@ const PROVIDER_INFO: Record<ReviewProviderName, { label: string; description: st
   },
 };
 
-export function ReviewProviderForm({ initialProvider }: { initialProvider: ReviewProviderName | null }) {
+export function ReviewProviderForm({
+  initialProvider,
+  hasApiToken = false,
+}: {
+  initialProvider: ReviewProviderName | null;
+  /** Whether a read token is already stored, so the field can show a placeholder instead of the
+   * secret and a blank submit can mean "keep what's saved". */
+  hasApiToken?: boolean;
+}) {
   const router = useRouter();
   const form = useForm<SelectProviderInput>({
     resolver: zodResolver(selectProviderSchema),
-    defaultValues: { provider: initialProvider ?? "JUDGE_ME" },
+    defaultValues: { provider: initialProvider ?? "JUDGE_ME", apiToken: undefined },
   });
+  const provider = useWatch({ control: form.control, name: "provider" });
 
   async function onSubmit(values: SelectProviderInput) {
-    const result = await putJson("/api/review-provider", values);
+    const result = await putJson("/api/review-provider", {
+      ...values,
+      apiToken: values.apiToken?.trim() ? values.apiToken.trim() : undefined,
+    });
     if (!result.success) {
       toast.error(result.error.message);
       return;
@@ -104,6 +117,34 @@ export function ReviewProviderForm({ initialProvider }: { initialProvider: Revie
                 </FormItem>
               )}
             />
+
+            {provider === "JUDGE_ME" && (
+              <FormField
+                control={form.control}
+                name="apiToken"
+                render={({ field }) => (
+                  <FormItem className="mt-4">
+                    <FormLabel>Judge.me API token (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder={hasApiToken ? "•••••••• (saved — leave blank to keep)" : "Private API token"}
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Not needed to upload — Judge.me accepts new reviews without auth. It&apos;s
+                      required only to <strong>read</strong> your published reviews, which is what
+                      the &quot;Scan uploaded reviews&quot; check on the Reviews page uses to find
+                      duplicate names or text already live on your storefront. Find it in Judge.me
+                      under Settings → General → API token.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </CardContent>
           <CardFooter>
             <Button type="submit" disabled={form.formState.isSubmitting}>
