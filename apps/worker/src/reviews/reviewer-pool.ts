@@ -14,16 +14,25 @@ function pick<T>(items: T[]): T {
 }
 
 const MAX_NAME_ATTEMPTS = 25;
-/** Plain "First Last" is preferred while the namespace is uncrowded; only once collisions start
- * does an initial get added. That keeps most names in the cleanest form and reserves the 21x
- * widening for when it's actually needed. */
-const PLAIN_NAME_ATTEMPTS = 4;
+/** Exactly one plain "First Last" attempt.
+ *
+ * This was 4, which was right while the namespace was empty and wrong the moment it filled. Plain
+ * combinations are first-names x surnames — 17,250 per gender — and a store generating hundreds of
+ * thousands of reviews exhausts that completely. Every plain attempt then became a guaranteed
+ * failed INSERT, and since reviewers are minted sequentially, a 55-review product paid ~220 pointless
+ * round-trips before doing any real work. One attempt keeps clean names while they last and costs
+ * almost nothing once they don't. */
+const PLAIN_NAME_ATTEMPTS = 1;
+/** After this many failures, use two initials. One initial multiplies the space 21x (~362k per
+ * gender); two makes it ~7.6M, which keeps insert retries rare no matter how large the store gets. */
+const DOUBLE_INITIAL_AFTER = 6;
 
 function randomName(gender: ReviewerGender, attempt: number): string {
   const first = pick(gender === "MALE" ? MALE_FIRST_NAMES : FEMALE_FIRST_NAMES);
   const last = pick(LAST_NAMES);
   if (attempt < PLAIN_NAME_ATTEMPTS) return `${first} ${last}`;
-  return `${first} ${pick(NAME_INITIALS)} ${last}`;
+  if (attempt < DOUBLE_INITIAL_AFTER) return `${first} ${pick(NAME_INITIALS)} ${last}`;
+  return `${first} ${pick(NAME_INITIALS)} ${pick(NAME_INITIALS)} ${last}`;
 }
 
 /** Creates a reviewer nobody in this store has used before. The unique [storeId, name] constraint
