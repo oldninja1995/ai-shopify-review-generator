@@ -39,6 +39,32 @@ export async function GET(_request: Request, { params }: { params: Promise<{ sca
   );
 }
 
+/** Clears a finished scan from the panel. Finished scans are kept so their result stays readable,
+ * but that means an old failure sits there looking like a live error — this is how you get rid of
+ * one. Only terminal scans can be removed; a running scan must be cancelled first. */
+export async function DELETE(_request: Request, { params }: { params: Promise<{ scanId: string }> }) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json(apiFailure("Not authenticated", { code: "NOT_AUTHENTICATED" }), { status: 401 });
+  }
+  const { scanId } = await params;
+
+  const deleted = await prisma.uploadedReviewScan.deleteMany({
+    where: {
+      id: scanId,
+      store: { userId: user.id },
+      status: { in: ["COMPLETED", "DISMISSED", "FAILED", "CANCELLED"] },
+    },
+  });
+  if (deleted.count === 0) {
+    return NextResponse.json(
+      apiFailure("Only a finished scan can be cleared — cancel it first", { code: "WRONG_STATE" }),
+      { status: 409 },
+    );
+  }
+  return NextResponse.json(apiSuccess({ cleared: true }));
+}
+
 /** Confirm (delete the flagged reviews) or dismiss (keep everything). */
 export async function POST(request: Request, { params }: { params: Promise<{ scanId: string }> }) {
   const user = await getCurrentUser();

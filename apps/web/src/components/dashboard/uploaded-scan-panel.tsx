@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -36,6 +37,17 @@ type FlagRow = {
   contentPreview: string;
   reviewCreatedAt: string | null;
 };
+
+/** A finished scan stays listed so its result is readable, which means an old failure can sit there
+ * looking current. An explicit age makes it obvious at a glance which one you are looking at. */
+function relativeAge(iso: string): string {
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
 const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
   PENDING: "outline",
@@ -96,6 +108,16 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
     else toast.error(result.error.message);
   }
 
+  async function clearScan(scanId: string) {
+    const response = await fetch(`/api/reviews/uploaded-scan/${scanId}`, { method: "DELETE" });
+    if (!response.ok) {
+      toast.error("Could not clear that scan");
+      return;
+    }
+    setScans((prev) => prev.filter((s) => s.id !== scanId));
+    router.refresh();
+  }
+
   async function act(scanId: string, action: "confirm" | "dismiss" | "cancel") {
     setConfirming(true);
     const result = await postJson(`/api/reviews/uploaded-scan/${scanId}`, { action });
@@ -133,9 +155,14 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
                   Review
                 </Button>
               )}
-              {(scan.status === "PENDING" || scan.status === "RUNNING") && (
+              {isRunning && (
                 <Button variant="ghost" size="xs" onClick={() => act(scan.id, "cancel")}>
                   Cancel
+                </Button>
+              )}
+              {!isRunning && scan.status !== "AWAITING_CONFIRMATION" && (
+                <Button variant="ghost" size="xs" onClick={() => clearScan(scan.id)} aria-label="Clear">
+                  <X />
                 </Button>
               )}
             </div>
@@ -170,6 +197,8 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
             {scan.status === "CANCELLED" && `Cancelled after ${scan.scannedCount.toLocaleString()} reviews`}
             {scan.status === "FAILED" && (scan.errorMessage ?? "Scan failed")}
             {" — "}
+            <span className={isRunning ? "" : "font-medium"}>{relativeAge(scan.createdAt)}</span>
+            {" · "}
             {new Date(scan.createdAt).toLocaleString()}
           </p>
         </div>
