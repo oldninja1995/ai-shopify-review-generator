@@ -69,9 +69,21 @@ export async function PUT(request: Request) {
   const existing = await prisma.reviewProviderConfig.findUnique({
     where: { storeId_provider: { storeId: store.id, provider: parsed.data.provider } },
   });
-  const currentCredentials: Record<string, string> = existing
-    ? (JSON.parse(decryptSecret(existing.credentialsEncrypted, requireEncryptionKey())) as Record<string, string>)
-    : {};
+  //
+  // Reading the existing blob must never be able to fail the save. Before this route merged
+  // credentials it only ever encrypted, so a blob that cannot be decrypted (written under a rotated
+  // key, or any legacy format) was harmless; now it would 500 the whole request and make it
+  // impossible to store a token at all. Falling back to an empty object means the worst case is
+  // losing previously-stored keys we could not read anyway.
+  let currentCredentials: Record<string, string> = {};
+  if (existing) {
+    try {
+      const decoded = JSON.parse(decryptSecret(existing.credentialsEncrypted, requireEncryptionKey()));
+      if (decoded && typeof decoded === "object") currentCredentials = decoded as Record<string, string>;
+    } catch {
+      console.error("[review-provider] could not decrypt stored credentials; starting a fresh blob");
+    }
+  }
   if (parsed.data.apiToken) currentCredentials.apiToken = parsed.data.apiToken;
   const credentialsEncrypted = encryptSecret(JSON.stringify(currentCredentials), requireEncryptionKey());
 
