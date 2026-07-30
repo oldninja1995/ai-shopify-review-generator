@@ -18,7 +18,11 @@ import {
 } from "./ai-generate.js";
 import { analyzeProductAudienceFromImage } from "./vision-audience.js";
 import { hashReviewContent } from "./content-hash.js";
-import { getOrCreateReviewer } from "./reviewer-pool.js";
+import {
+  buildReviewerPersona,
+  persistReviewerPersona,
+  type ReviewerPersona,
+} from "./reviewer-pool.js";
 import { env } from "../env.js";
 import { logSystemEvent } from "../logging.js";
 
@@ -247,24 +251,25 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     }
   }
 
-  // Phase 1: reserve a reviewer per slot sequentially — this must stay sequential (not
-  // parallelized with phase 2) since usedReviewerIds is mutated after each pick, and two
-  // concurrent picks could otherwise land on the same reviewer for this product's batch. This
-  // phase is DB-only and fast; it's not the bottleneck.
+  // Phase 1: build a reviewer identity per slot, in memory only.
+  //
+  // This used to INSERT a profile per slot before any review existed. With products requesting up to
+  // 100 reviews and AI frequently able to produce none, that meant ~100 rows written per product for
+  // zero output — production accumulated 185,000 profiles against 2,900 reviews, and those inserts
+  // were consuming most of the worker's time. Personas are now free to create; a row is written only
+  // once a review has actually been generated for it (see persistReviewerPersona below).
   type Slot = {
     gender: "MALE" | "FEMALE";
-    reviewer: Awaited<ReturnType<typeof getOrCreateReviewer>>;
+    persona: ReviewerPersona;
     giftRecipient?: string;
     reviewLength: ReviewLength;
     rating: number;
   };
   const slots: Slot[] = [];
   for (const gender of genderQueue) {
-    const reviewer = await getOrCreateReviewer(product.storeId, gender);
-    usedReviewerIds.add(reviewer.id);
     slots.push({
       gender,
-      reviewer,
+      persona: buildReviewerPersona(gender),
       giftRecipient: audience !== "UNISEX" && audience !== gender ? pickGiftRecipient(gender) : undefined,
       reviewLength: lengthMode === "MIXED" && lengthWeights ? pickWeightedLength(lengthWeights) : length,
       // Jobs queued before the rating mix was configurable carry no weights — fall back to the
@@ -330,11 +335,11 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
         { productTitle: product.title, productType: effectiveProductType, brand },
         chunk.slots.map((slot) => ({
           reviewer: {
-            name: slot.reviewer.name,
-            gender: slot.reviewer.gender,
-            ageGroup: slot.reviewer.ageGroup,
-            occupation: slot.reviewer.occupation,
-            country: slot.reviewer.country,
+            name: slot.persona.name,
+            gender: slot.persona.gender,
+            ageGroup: slot.persona.ageGroup,
+            occupation: slot.persona.occupation,
+            country: slot.persona.country,
           },
           rating: slot.rating,
           length: slot.reviewLength,
@@ -350,14 +355,14 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   }
 
   await Promise.all(
-    slots.map(async ({ reviewer, giftRecipient, reviewLength, rating }, slotIndex) => {
+    slots.map(async ({ persona, giftRecipient, reviewLength, rating }, slotIndex) => {
       try {
         const reviewerPersona = {
-          name: reviewer.name,
-          gender: reviewer.gender,
-          ageGroup: reviewer.ageGroup,
-          occupation: reviewer.occupation,
-          country: reviewer.country,
+          name: persona.name,
+          gender: persona.gender,
+          ageGroup: persona.ageGroup,
+          occupation: persona.occupation,
+          country: persona.country,
         };
 
         // Use what the batch already produced for this slot; only slots it couldn't fill cost an
@@ -417,6 +422,11 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
 
         usedCombos.add(produced.comboKey);
         usedHashes.add(hash);
+
+        // The reviewer row is written only now, once there is a review to attach it to. Doing this
+        // up front cost one INSERT per requested slot regardless of whether anything was generated.
+        const reviewer = await persistReviewerPersona(product.storeId, persona);
+        usedReviewerIds.add(reviewer.id);
 
         await prisma.generatedReview.create({
           data: {

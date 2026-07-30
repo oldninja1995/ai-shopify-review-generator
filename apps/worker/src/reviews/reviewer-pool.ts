@@ -35,6 +35,48 @@ function randomName(gender: ReviewerGender, attempt: number): string {
   return `${first} ${pick(NAME_INITIALS)} ${pick(NAME_INITIALS)} ${last}`;
 }
 
+/** A reviewer identity that exists only in memory.
+ *
+ * Personas are built without touching the database, so a batch prompt can name its reviewers
+ * without committing a row for each. Only slots that actually produce a review get persisted.
+ * Previously a profile was inserted for every requested slot up front, so a product asking for 100
+ * reviews and receiving none still created 100 rows — production reached 185,000 profiles against
+ * 2,900 reviews, and those inserts became the bulk of the work the worker was doing. */
+export type ReviewerPersona = {
+  name: string;
+  gender: ReviewerGender;
+  country: string;
+  ageGroup: string;
+  occupation: string;
+  isVerifiedPurchase: boolean;
+};
+
+export function buildReviewerPersona(gender: ReviewerGender, attempt = 0): ReviewerPersona {
+  return {
+    name: randomName(gender, attempt),
+    gender,
+    country: pick(COUNTRIES),
+    ageGroup: pick(AGE_GROUPS),
+    occupation: pick(OCCUPATIONS),
+    isVerifiedPurchase: Math.random() < 0.7,
+  };
+}
+
+/** Persists a persona, renaming on collision. Every other attribute is kept, so the identity the
+ * review was actually written for survives even when the name has to change. */
+export async function persistReviewerPersona(storeId: string, persona: ReviewerPersona) {
+  for (let attempt = 0; attempt < MAX_NAME_ATTEMPTS; attempt++) {
+    // Attempt 0 uses the name the review was generated against; later ones re-roll only the name.
+    const name = attempt === 0 ? persona.name : randomName(persona.gender, attempt);
+    try {
+      return await prisma.reviewerProfile.create({ data: { storeId, ...persona, name } });
+    } catch (error) {
+      if (attempt === MAX_NAME_ATTEMPTS - 1) throw error;
+    }
+  }
+  throw new Error(`Failed to persist a unique reviewer after ${MAX_NAME_ATTEMPTS} attempts`);
+}
+
 /** Creates a reviewer nobody in this store has used before. The unique [storeId, name] constraint
  * is the authority — attempts simply retry against it, which is race-safe under concurrent workers
  * in a way that a pre-check "is this name taken" query would not be. */
