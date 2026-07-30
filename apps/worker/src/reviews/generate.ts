@@ -286,11 +286,15 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     );
   }
 
-  // Set the moment AI generation fails once in AI-only mode — every slot that hasn't started its
-  // AI call yet then skips outright instead of also burning a request against an already-exhausted
-  // provider. `skippedCount` covers both kinds of skip: the slot whose failure set this flag, and
-  // every later slot that short-circuited because of it.
-  let aiExhausted = false;
+  // Counts reviews AI could not produce (AI-only mode skips them rather than falling back to the
+  // phrase bank). Purely for reporting.
+  //
+  // This used to also set an `aiExhausted` flag on the FIRST failure, after which every remaining
+  // slot for the product was abandoned. The intent was to avoid burning requests against a spent
+  // provider — but it meant one transient 429 on the second review discarded the other fourteen,
+  // and in practice produced 1.0 reviews per product against 16 requested. The per-model cooldown
+  // in model-health.ts now provides that protection properly: once models are in cooldown a further
+  // attempt costs no network calls at all and throws immediately, so every slot can safely try.
   let skippedCount = 0;
 
   // Phase 2: the actual slow part (AI network calls) runs in parallel across the whole batch —
@@ -301,10 +305,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   // per-product duplicate-check job (see duplicate-check.worker.ts) already catches and cleans up.
   await Promise.all(
     slots.map(async ({ reviewer, giftRecipient, reviewLength, rating }) => {
-      if (aiOnlyMode && aiExhausted) {
-        skippedCount++;
-        return;
-      }
       try {
         const reviewerPersona = {
           name: reviewer.name,
@@ -329,7 +329,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
           giftRecipient,
         });
         if (produced === null) {
-          aiExhausted = true;
           skippedCount++;
           return;
         }
@@ -354,7 +353,6 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
             giftRecipient,
           });
           if (produced === null) {
-            aiExhausted = true;
             skippedCount++;
             return;
           }
@@ -386,10 +384,10 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
     }),
   );
 
-  if (aiExhausted) {
+  if (skippedCount > 0) {
     void logSystemEvent(
       "WARN",
-      `AI limit hit for "${product.title}" — every configured AI provider failed, so generation stopped early (AI-only mode). Skipped ${skippedCount} of ${slots.length} requested review(s).`,
+      `AI could not produce ${skippedCount} of ${slots.length} review(s) for "${product.title}" — every configured provider failed or is in cooldown. AI-only mode is on, so those were skipped rather than phrase-bank generated.`,
       { userId: product.store.userId, metadata: { productId, skippedCount, requestedCount: slots.length } },
     );
   }
