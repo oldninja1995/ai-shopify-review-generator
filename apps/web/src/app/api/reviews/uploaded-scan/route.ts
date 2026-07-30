@@ -16,14 +16,12 @@ export async function GET() {
   const store = await currentStore(user.id);
   if (!store) return NextResponse.json(apiSuccess({ scans: [] }));
 
-  // Terminal scans clear themselves from the panel, same rule as the other job panels — only work
-  // that is live or still needs a decision stays listed.
+  // Unlike the generation/duplicate-check panels, finished scans are deliberately kept: the result
+  // *is* the deliverable here. Hiding them meant a scan that found no duplicates completed and
+  // disappeared, leaving no way to see that it had run or what it scanned. Capped at 3 so it stays
+  // a recent-results list rather than accumulating.
   const scans = await prisma.uploadedReviewScan
-    .findMany({
-      where: { storeId: store.id, status: { in: ["PENDING", "RUNNING", "AWAITING_CONFIRMATION"] } },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    })
+    .findMany({ where: { storeId: store.id }, orderBy: { createdAt: "desc" }, take: 3 })
     .catch(() => []);
 
   return NextResponse.json(

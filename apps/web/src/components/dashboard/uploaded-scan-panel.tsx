@@ -41,6 +41,8 @@ const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = 
   PENDING: "outline",
   RUNNING: "secondary",
   AWAITING_CONFIRMATION: "outline",
+  COMPLETED: "secondary",
+  DISMISSED: "outline",
   FAILED: "destructive",
   CANCELLED: "destructive",
 };
@@ -117,7 +119,10 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
         </Button>
       </div>
 
-      {scans.map((scan) => (
+      {scans.map((scan) => {
+        const isRunning = scan.status === "PENDING" || scan.status === "RUNNING";
+        const isTerminal = scan.status === "COMPLETED" || scan.status === "DISMISSED";
+        return (
         <div key={scan.id} className="rounded-lg border p-3 text-sm">
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium">{scan.provider.replace(/_/g, " ")}</span>
@@ -135,18 +140,41 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
               )}
             </div>
           </div>
-          <Progress value={scan.status === "AWAITING_CONFIRMATION" ? 100 : scan.scannedCount > 0 ? 60 : 5} className="mt-2" />
+          {/* Judge.me's API reports no total, so genuine percentage progress is impossible — a
+              moving count is the honest signal. An indeterminate bar while running says "working"
+              without inventing a completion figure. */}
+          {isRunning ? (
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+            </div>
+          ) : (
+            <Progress value={isTerminal || scan.status === "AWAITING_CONFIRMATION" ? 100 : 0} className="mt-2" />
+          )}
+
           <p className="mt-1 text-xs text-muted-foreground">
-            {scan.status === "RUNNING" && `Scanned ${scan.scannedCount} published reviews...`}
             {scan.status === "PENDING" && "Waiting to start..."}
+            {scan.status === "RUNNING" &&
+              (scan.scannedCount > 0
+                ? `Scanned ${scan.scannedCount.toLocaleString()} published reviews so far...`
+                : "Fetching the first page from the provider...")}
             {scan.status === "AWAITING_CONFIRMATION" &&
-              `${scan.flaggedCount} duplicate${scan.flaggedCount === 1 ? "" : "s"} found across ${scan.scannedCount} reviews — nothing deleted yet`}
+              `${scan.flaggedCount.toLocaleString()} duplicate${scan.flaggedCount === 1 ? "" : "s"} found across ${scan.scannedCount.toLocaleString()} published reviews — nothing deleted yet`}
+            {scan.status === "COMPLETED" &&
+              (scan.deletedCount > 0
+                ? `Deleted ${scan.deletedCount.toLocaleString()} duplicate${scan.deletedCount === 1 ? "" : "s"} from the storefront (scanned ${scan.scannedCount.toLocaleString()})`
+                : scan.flaggedCount > 0
+                  ? `${scan.flaggedCount.toLocaleString()} flagged, none deleted (scanned ${scan.scannedCount.toLocaleString()})`
+                  : `No duplicates found — scanned ${scan.scannedCount.toLocaleString()} published reviews`)}
+            {scan.status === "DISMISSED" &&
+              `Dismissed — ${scan.flaggedCount.toLocaleString()} flagged, nothing deleted`}
+            {scan.status === "CANCELLED" && `Cancelled after ${scan.scannedCount.toLocaleString()} reviews`}
             {scan.status === "FAILED" && (scan.errorMessage ?? "Scan failed")}
             {" — "}
             {new Date(scan.createdAt).toLocaleString()}
           </p>
         </div>
-      ))}
+        );
+      })}
 
       <Dialog open={reviewingId !== null} onOpenChange={(open) => !open && setReviewingId(null)}>
         <DialogContent className="max-w-3xl">

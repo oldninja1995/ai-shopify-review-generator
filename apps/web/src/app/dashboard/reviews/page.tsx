@@ -116,15 +116,12 @@ export default async function ReviewsPage({
     createdAt: job.createdAt.toISOString(),
   }));
 
-  // Scans of reviews already published on the provider. Same visibility rule as above; wrapped in a
-  // catch so a database without this migration still renders the rest of the page.
+  // Deliberately NOT filtered to live work, unlike the panels above: a scan's result is the whole
+  // point, so a completed one has to stay visible long enough to read. Wrapped in a catch so a
+  // database without this migration still renders the rest of the page.
   const uploadedScans = (
     await prisma.uploadedReviewScan
-      .findMany({
-        where: { storeId: store.id, status: { in: ["PENDING", "RUNNING", "AWAITING_CONFIRMATION"] } },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      })
+      .findMany({ where: { storeId: store.id }, orderBy: { createdAt: "desc" }, take: 3 })
       .catch(() => [])
   ).map((scan) => ({
     id: scan.id,
