@@ -85,6 +85,16 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
     const flags: Flag[] = [];
     let scanned = 0;
 
+    // Every review id processed in this scan, so seeing one twice is a no-op instead of a duplicate.
+    //
+    // Without this, a first run reported 40,026 duplicates across 50,000 reviews — but those flags
+    // covered only 126 distinct reviews, each flagged ~400 times, and 40,000 of them named the
+    // review as its own match. Whatever causes a review to come back (a retried job overlapping
+    // itself, a provider repeating rows on deep pages), the fix is the same: identity, not trust in
+    // the feed. A duplicate report has to mean two different reviews.
+    const processedReviewIds = new Set<string>();
+    let repeatsIgnored = 0;
+
     for (let page = 1; page <= MAX_PAGES; page++) {
       const current = await prisma.uploadedReviewScan.findUnique({
         where: { id: scanId },
@@ -96,7 +106,15 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
       scanned += reviews.length;
 
       for (const review of reviews) {
-        if (!review.productExternalId) continue;
+        if (!review.productExternalId || !review.externalId) continue;
+
+        // Already handled in this scan — ignore rather than compare it against itself.
+        if (processedReviewIds.has(review.externalId)) {
+          repeatsIgnored++;
+          continue;
+        }
+        processedReviewIds.add(review.externalId);
+
         let seen = seenByProduct.get(review.productExternalId);
         if (!seen) {
           seen = { names: new Map(), contents: new Map() };
@@ -109,12 +127,13 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
         // Content first: an identical body is the more damaging duplicate, and reporting one reason
         // per review keeps the confirm list unambiguous.
         const contentMatch = contentKey ? seen.contents.get(contentKey) : undefined;
-        if (contentMatch) {
+        // Belt and braces: a review can never be its own duplicate, whatever the feed does.
+        if (contentMatch && contentMatch !== review.externalId) {
           flags.push({ review, reason: "CONTENT", keptExternalId: contentMatch });
           continue;
         }
         const nameMatch = nameKey ? seen.names.get(nameKey) : undefined;
-        if (nameMatch) {
+        if (nameMatch && nameMatch !== review.externalId) {
           flags.push({ review, reason: "REVIEWER", keptExternalId: nameMatch });
           continue;
         }
@@ -125,7 +144,9 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
 
       await prisma.uploadedReviewScan.update({
         where: { id: scanId },
-        data: { scannedCount: scanned, totalCount: scanned, flaggedCount: flags.length },
+        // scannedCount reports distinct reviews, not rows received — a provider repeating rows must not
+        // inflate what the panel shows.
+        data: { scannedCount: processedReviewIds.size, totalCount: scanned, flaggedCount: flags.length },
       });
       if (!hasMore) break;
     }
@@ -161,7 +182,7 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
     const store = await prisma.shopifyStore.findUnique({ where: { id: storeId }, select: { userId: true } });
     await logSystemEvent(
       "INFO",
-      `Scanned ${scanned} published reviews on ${existing.provider}: ${flags.length} duplicate${flags.length === 1 ? "" : "s"} flagged`,
+      `Scanned ${processedReviewIds.size} distinct published reviews on ${existing.provider}: ${flags.length} duplicate${flags.length === 1 ? "" : "s"} flagged${repeatsIgnored > 0 ? ` (${repeatsIgnored} repeated rows from the provider ignored)` : ""}`,
       { userId: store?.userId, metadata: { scanId } },
     );
   } catch (error) {
