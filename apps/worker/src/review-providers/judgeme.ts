@@ -5,6 +5,7 @@ import {
   type ReviewUploadPayload,
   type ReviewUploadResult,
 } from "@ai-shopify/shared";
+import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
 
 const JUDGE_ME_REVIEWS_ENDPOINT = "https://judge.me/api/v1/reviews";
 
@@ -87,7 +88,9 @@ export const judgeMeProvider: ReviewProvider = {
     url.searchParams.set("page", String(page));
     url.searchParams.set("per_page", String(perPage));
 
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    // Timeout is essential, not defensive: a stalled connection here holds the BullMQ job forever,
+    // which is exactly how a scan froze at 42,500 reviews with no error and no recovery.
+    const response = await fetchWithTimeout(url.toString(), { headers: { Accept: "application/json" } }, 30_000);
     if (!response.ok) {
       const retryable = response.status === 429 || response.status >= 500;
       throw new ProviderUploadError(
@@ -132,7 +135,7 @@ export const judgeMeProvider: ReviewProvider = {
     url.searchParams.set("api_token", apiToken);
     if (shopDomain) url.searchParams.set("shop_domain", shopDomain);
 
-    const response = await fetch(url, { method: "DELETE" });
+    const response = await fetchWithTimeout(url.toString(), { method: "DELETE" }, 30_000);
     // A review already gone is the desired end state, not a failure worth aborting the batch for.
     if (response.status === 404) return;
     if (!response.ok) {

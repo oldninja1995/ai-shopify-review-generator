@@ -28,57 +28,6 @@ type Flag = {
   keptExternalId: string;
 };
 
-/** Applies the store's rule — no repeated reviewer name and no repeated content under the same
- * product — to the reviews as they actually exist on the provider.
- *
- * Scoped per product deliberately: a name appearing on many *different* products is a separate
- * concern (and unavoidable historically), whereas the same name twice on one product is what a
- * shopper sees on a single page. The earliest review of each set is kept. */
-function findDuplicates(reviews: PublishedReview[]): Flag[] {
-  const byProduct = new Map<string, PublishedReview[]>();
-  for (const review of reviews) {
-    if (!review.productExternalId) continue;
-    const list = byProduct.get(review.productExternalId) ?? [];
-    list.push(review);
-    byProduct.set(review.productExternalId, list);
-  }
-
-  const flags: Flag[] = [];
-  for (const group of byProduct.values()) {
-    // Oldest first, so the review that is kept is the one that has been live longest.
-    const ordered = [...group].sort((a, b) => {
-      const at = a.createdAt ? Date.parse(a.createdAt) : 0;
-      const bt = b.createdAt ? Date.parse(b.createdAt) : 0;
-      return at - bt;
-    });
-
-    const seenName = new Map<string, string>();
-    const seenContent = new Map<string, string>();
-
-    for (const review of ordered) {
-      const nameKey = normaliseName(review.reviewerName);
-      const contentKey = normaliseContent(review.content);
-
-      // Content is checked first: an identical review body is the more damaging duplicate, and
-      // reporting one reason per review keeps the confirm list unambiguous.
-      const contentMatch = contentKey ? seenContent.get(contentKey) : undefined;
-      if (contentMatch) {
-        flags.push({ review, reason: "CONTENT", keptExternalId: contentMatch });
-        continue;
-      }
-      const nameMatch = nameKey ? seenName.get(nameKey) : undefined;
-      if (nameMatch) {
-        flags.push({ review, reason: "REVIEWER", keptExternalId: nameMatch });
-        continue;
-      }
-
-      if (contentKey) seenContent.set(contentKey, review.externalId);
-      if (nameKey) seenName.set(nameKey, review.externalId);
-    }
-  }
-  return flags;
-}
-
 async function loadCredentials(storeId: string, provider: string): Promise<ReviewProviderCredentials> {
   const config = await prisma.reviewProviderConfig.findFirstOrThrow({
     where: { storeId, provider: provider as never },
@@ -99,7 +48,22 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
     where: { id: scanId },
     select: { status: true, provider: true },
   });
-  if (existing.status !== "PENDING") return;
+  // PENDING is a fresh scan; RUNNING means a previous attempt died mid-flight — a worker restart or
+  // a deploy — and BullMQ has re-delivered the job. Refusing RUNNING (as this did) left such a scan
+  // stuck at RUNNING forever with no error and no way to recover, which is exactly what happened to
+  // a scan frozen at 42,500 reviews across three worker deploys.
+  //
+  // Restarting from page 1 is correct rather than merely convenient: paging position isn't stored,
+  // and duplicate detection needs the full set to be meaningful. Previously-written flags are
+  // cleared first so a resumed scan can't double-report.
+  if (existing.status !== "PENDING" && existing.status !== "RUNNING") return;
+  if (existing.status === "RUNNING") {
+    await prisma.uploadedReviewFlag.deleteMany({ where: { scanId } });
+    await prisma.uploadedReviewScan.update({
+      where: { id: scanId },
+      data: { scannedCount: 0, flaggedCount: 0 },
+    });
+  }
 
   await prisma.uploadedReviewScan.update({ where: { id: scanId }, data: { status: "RUNNING" } });
 
@@ -110,7 +74,17 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
     }
     const credentials = await loadCredentials(storeId, existing.provider);
 
-    const all: PublishedReview[] = [];
+    // Detection runs per page rather than over an accumulated array. Holding every published review
+    // in memory would mean ~300,000 objects for this store, which is a real risk of exhausting the
+    // worker container; only the normalised keys needed to spot a repeat are retained.
+    //
+    // Consequence worth knowing: the first copy *encountered* is kept, not the oldest. Judge.me
+    // returns newest first, so of a duplicate pair the newer survives. Which copy survives matters
+    // far less than the duplicate being removed, and the alternative needs the whole set in memory.
+    const seenByProduct = new Map<string, { names: Map<string, string>; contents: Map<string, string> }>();
+    const flags: Flag[] = [];
+    let scanned = 0;
+
     for (let page = 1; page <= MAX_PAGES; page++) {
       const current = await prisma.uploadedReviewScan.findUnique({
         where: { id: scanId },
@@ -119,15 +93,44 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
       if (current?.status !== "RUNNING") return;
 
       const { reviews, hasMore } = await provider.fetchReviews(credentials, { page, perPage: PAGE_SIZE });
-      all.push(...reviews);
+      scanned += reviews.length;
+
+      for (const review of reviews) {
+        if (!review.productExternalId) continue;
+        let seen = seenByProduct.get(review.productExternalId);
+        if (!seen) {
+          seen = { names: new Map(), contents: new Map() };
+          seenByProduct.set(review.productExternalId, seen);
+        }
+
+        const contentKey = normaliseContent(review.content);
+        const nameKey = normaliseName(review.reviewerName);
+
+        // Content first: an identical body is the more damaging duplicate, and reporting one reason
+        // per review keeps the confirm list unambiguous.
+        const contentMatch = contentKey ? seen.contents.get(contentKey) : undefined;
+        if (contentMatch) {
+          flags.push({ review, reason: "CONTENT", keptExternalId: contentMatch });
+          continue;
+        }
+        const nameMatch = nameKey ? seen.names.get(nameKey) : undefined;
+        if (nameMatch) {
+          flags.push({ review, reason: "REVIEWER", keptExternalId: nameMatch });
+          continue;
+        }
+
+        if (contentKey) seen.contents.set(contentKey, review.externalId);
+        if (nameKey) seen.names.set(nameKey, review.externalId);
+      }
+
       await prisma.uploadedReviewScan.update({
         where: { id: scanId },
-        data: { scannedCount: all.length, totalCount: all.length },
+        data: { scannedCount: scanned, totalCount: scanned, flaggedCount: flags.length },
       });
       if (!hasMore) break;
     }
 
-    const flags = findDuplicates(all);
+
 
     if (flags.length > 0) {
       await prisma.uploadedReviewFlag.createMany({
@@ -158,7 +161,7 @@ export async function runUploadedScanJob(payload: UploadedScanJobPayload): Promi
     const store = await prisma.shopifyStore.findUnique({ where: { id: storeId }, select: { userId: true } });
     await logSystemEvent(
       "INFO",
-      `Scanned ${all.length} published reviews on ${existing.provider}: ${flags.length} duplicate${flags.length === 1 ? "" : "s"} flagged`,
+      `Scanned ${scanned} published reviews on ${existing.provider}: ${flags.length} duplicate${flags.length === 1 ? "" : "s"} flagged`,
       { userId: store?.userId, metadata: { scanId } },
     );
   } catch (error) {
