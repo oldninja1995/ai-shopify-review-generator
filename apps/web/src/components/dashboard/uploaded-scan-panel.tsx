@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getJson, postJson } from "@/lib/api-client";
+import { detectDuplicates, mapColumns, parseCsv } from "@/lib/csv-duplicates";
 
 type ScanRow = {
   id: string;
@@ -73,6 +74,8 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [flags, setFlags] = useState<FlagRow[] | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState("");
 
   // Deliberately not just "is any scan PENDING/RUNNING": a scan dropped from the queue by a worker
   // restart keeps that status forever, and treating it as active disabled this button permanently.
@@ -116,6 +119,74 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
     else toast.error(result.error.message);
   }
 
+  /** Parses an export locally, then posts only the duplicates found. Flags go up in chunks because a
+   * store with a genuinely high duplicate rate could otherwise exceed the request body limit on the
+   * findings alone. */
+  async function importCsv(file: File) {
+    setImporting(true);
+    setImportProgress("Reading file...");
+    try {
+      const text = await file.text();
+      setImportProgress("Parsing...");
+      const rows = parseCsv(text);
+      if (rows.length < 2) {
+        toast.error("That file has no rows");
+        return;
+      }
+
+      const columns = mapColumns(rows[0]!);
+      if ("error" in columns) {
+        toast.error(columns.error);
+        return;
+      }
+
+      setImportProgress(`Checking ${(rows.length - 1).toLocaleString()} rows...`);
+      const result = detectDuplicates(rows.slice(1), columns);
+
+      const started = await postJson<{ scanId: string }>("/api/reviews/uploaded-scan/import", {
+        action: "start",
+      });
+      if (!started.success) {
+        toast.error(started.error.message);
+        return;
+      }
+      const scanId = started.data.scanId;
+
+      const CHUNK = 2000;
+      for (let i = 0; i < result.flags.length; i += CHUNK) {
+        setImportProgress(`Uploading findings ${i.toLocaleString()}/${result.flags.length.toLocaleString()}...`);
+        const sent = await postJson("/api/reviews/uploaded-scan/import", {
+          action: "flags",
+          scanId,
+          flags: result.flags.slice(i, i + CHUNK),
+          scannedCount: result.scanned,
+        });
+        if (!sent.success) {
+          toast.error(sent.error.message);
+          return;
+        }
+      }
+
+      await postJson("/api/reviews/uploaded-scan/import", {
+        action: "finish",
+        scanId,
+        scannedCount: result.scanned,
+      });
+
+      const rate = ((result.flags.length / Math.max(1, result.scanned)) * 100).toFixed(2);
+      toast.success(
+        `${result.flags.length.toLocaleString()} duplicates in ${result.scanned.toLocaleString()} reviews (${rate}%)` +
+          (result.contentIsTitleOnly ? " — title only, export had no body column" : ""),
+      );
+      router.refresh();
+    } catch (error) {
+      toast.error(`Could not read that file: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setImporting(false);
+      setImportProgress("");
+    }
+  }
+
   async function clearScan(scanId: string) {
     const response = await fetch(`/api/reviews/uploaded-scan/${scanId}`, { method: "DELETE" });
     if (!response.ok) {
@@ -143,10 +214,35 @@ export function UploadedScanPanel({ initialScans }: { initialScans: ScanRow[] })
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={startScan} disabled={starting || hasActive}>
           {starting ? "Starting..." : "Scan uploaded reviews"}
         </Button>
+
+        {/* The API route caps at 10,000 reviews (Judge.me stops paginating at page 100 and ignores
+            every filter parameter), so a store with hundreds of thousands can only be checked in
+            full from an export file. Parsed in the browser: the file is far larger than the request
+            body limit, and the findings are far smaller than the file. */}
+        <label
+          className={`inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-sm hover:bg-muted ${
+            importing ? "pointer-events-none opacity-60" : ""
+          }`}
+        >
+          {importing ? importProgress || "Importing..." : "Check a CSV export"}
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void importCsv(file);
+            }}
+          />
+        </label>
+        <span className="text-xs text-muted-foreground">
+          Judge.me&apos;s API only exposes the newest 10,000 reviews — use an export to check them all.
+        </span>
       </div>
 
       {scans.map((scan) => {
