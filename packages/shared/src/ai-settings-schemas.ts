@@ -36,6 +36,13 @@ export const GROQ_MODEL_OPTIONS: OpenRouterModelOption[] = [
  * Groq. Each is a separate account with its own quota — which is the only thing that raises real
  * throughput, since OpenRouter's free models all draw on one account-wide daily allowance.
  *
+ * Deliberately limited to the free tiers large enough to matter at bulk scale (Gemini, Groq,
+ * Cerebras, Mistral, Zhipu). Presets for DeepSeek, NVIDIA NIM, GitHub Models, Hugging Face,
+ * SambaNova, Together and Cohere were removed: each was either paid, capped by a one-off credit
+ * grant rather than a daily allowance, or too tightly rate limited to contribute a meaningful
+ * share of a 50k-review day. The form still accepts any base URL, so nothing here is a hard
+ * restriction — the list is just what is worth reaching for first.
+ *
  * Suggested models are starting points, not a validated list: free tiers and model ids change
  * often, so the form lets you type any id rather than restricting you to these. */
 export type AiProviderPreset = {
@@ -47,9 +54,6 @@ export type AiProviderPreset = {
   /** Whether GET {baseUrl}/models works, so the form can offer live model discovery instead of
    * relying on the hand-written suggestions (which go stale as providers rename ids). */
   supportsModelList: boolean;
-  /** Set when the provider does NOT speak the OpenAI chat-completions shape and therefore needs its
-   * own adapter in the worker. Everything else runs through the one generic client. */
-  adapter?: "cohere";
 };
 
 export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
@@ -85,14 +89,6 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
     supportsModelList: true,
   },
   {
-    slug: "deepseek",
-    label: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    suggestedModels: ["deepseek-chat", "deepseek-reasoner"],
-    note: "Paid but very cheap at bulk scale, with no free-tier ceiling to work around.",
-    supportsModelList: true,
-  },
-  {
     slug: "mistral",
     label: "Mistral AI",
     baseUrl: "https://api.mistral.ai/v1",
@@ -107,64 +103,6 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
     suggestedModels: ["glm-4.5-flash", "glm-4.5-air", "glm-4.5"],
     note: "GLM-4.5-Flash is the free tier. OpenAI-compatible endpoint.",
     supportsModelList: false,
-  },
-  {
-    slug: "nvidia",
-    label: "NVIDIA NIM",
-    baseUrl: "https://integrate.api.nvidia.com/v1",
-    suggestedModels: [
-      "meta/llama-3.3-70b-instruct",
-      "deepseek-ai/deepseek-r1",
-      "nvidia/llama-3.3-nemotron-super-49b-v1",
-    ],
-    note: "Free credits on build.nvidia.com. Model ids are namespaced by vendor.",
-    supportsModelList: true,
-  },
-  {
-    slug: "github-models",
-    label: "GitHub Models",
-    baseUrl: "https://models.github.ai/inference",
-    suggestedModels: ["openai/gpt-4o-mini", "microsoft/Phi-4", "meta/Llama-3.3-70B-Instruct"],
-    note: "Uses a GitHub personal access token with the models scope. Rate limits are per-account and fairly tight.",
-    supportsModelList: true,
-  },
-  {
-    slug: "huggingface",
-    label: "Hugging Face Inference",
-    baseUrl: "https://router.huggingface.co/v1",
-    suggestedModels: [
-      "meta-llama/Llama-3.3-70B-Instruct",
-      "Qwen/Qwen3-32B",
-      "mistralai/Mistral-7B-Instruct-v0.3",
-      "deepseek-ai/DeepSeek-R1",
-    ],
-    note: "The router endpoint is OpenAI-compatible. Availability varies by model and provider backing it.",
-    supportsModelList: true,
-  },
-  {
-    slug: "sambanova",
-    label: "SambaNova",
-    baseUrl: "https://api.sambanova.ai/v1",
-    suggestedModels: ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-8B-Instruct"],
-    note: "Free tier, fast Llama models.",
-    supportsModelList: true,
-  },
-  {
-    slug: "together",
-    label: "Together AI",
-    baseUrl: "https://api.together.xyz/v1",
-    suggestedModels: ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],
-    note: "Some free models plus a cheap paid tier.",
-    supportsModelList: true,
-  },
-  {
-    slug: "cohere",
-    label: "Cohere",
-    baseUrl: "https://api.cohere.com/v2",
-    suggestedModels: ["command-a-03-2025", "command-r-plus-08-2024", "command-r-08-2024"],
-    note: "Not OpenAI-compatible — routed through a dedicated adapter. Trial keys are rate limited but free.",
-    supportsModelList: true,
-    adapter: "cohere",
   },
 ];
 
