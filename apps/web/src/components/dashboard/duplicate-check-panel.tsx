@@ -76,6 +76,7 @@ export function DuplicateCheckPanel({ jobs: initialJobs }: { jobs: DuplicateChec
   const [checkMode, setCheckMode] = useState<DuplicateCheckMode>("EXACT");
   const [starting, setStarting] = useState(false);
   const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
 
   // Adjusting state during render (React's documented pattern) rather than in an effect, to avoid
   // an extra render pass whenever the server re-renders this page with fresh job rows.
@@ -115,6 +116,18 @@ export function DuplicateCheckPanel({ jobs: initialJobs }: { jobs: DuplicateChec
     }
     toast.success("Duplicate check started — see progress below");
     setOpen(false);
+    router.refresh();
+  }
+
+  async function cancelJob(jobId: string) {
+    setCancellingJobId(jobId);
+    const result = await postJson(`/api/reviews/duplicate-check/${jobId}/cancel`, {});
+    setCancellingJobId(null);
+    if (!result.success) {
+      toast.error(result.error.message);
+      return;
+    }
+    toast.success("Check cancelled");
     router.refresh();
   }
 
@@ -162,6 +175,16 @@ export function DuplicateCheckPanel({ jobs: initialJobs }: { jobs: DuplicateChec
                         Review
                       </Button>
                     )}
+                    {(job.status === "PENDING" || job.status === "RUNNING") && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={cancellingJobId === job.id}
+                        onClick={() => cancelJob(job.id)}
+                      >
+                        {cancellingJobId === job.id ? "Cancelling..." : "Cancel"}
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <Progress value={percent} className="mt-2" />
@@ -172,7 +195,7 @@ export function DuplicateCheckPanel({ jobs: initialJobs }: { jobs: DuplicateChec
                       : "Waiting to start...")}
                   {job.status === "RUNNING" &&
                     (isAiMode
-                      ? `Scanning: ${job.totalToDelete} likely duplicate${job.totalToDelete === 1 ? "" : "s"} found so far (scanned ${job.scannedCount}${job.totalCount > 0 ? ` / ${job.totalCount}` : ""})${eta ? ` — ${eta}` : ""}`
+                      ? `Scanning & removing: ${job.deletedCount} duplicate${job.deletedCount === 1 ? "" : "s"} removed so far (scanned ${job.scannedCount}${job.totalCount > 0 ? ` / ${job.totalCount}` : ""})${eta ? ` — ${eta}` : ""}`
                       : job.totalToDelete > 0
                         ? `Removing duplicates: ${job.deletedCount} / ${job.totalToDelete}`
                         : `Scanned ${job.scannedCount} reviews...`)}
@@ -202,7 +225,7 @@ export function DuplicateCheckPanel({ jobs: initialJobs }: { jobs: DuplicateChec
             <DialogDescription>
               {checkMode === "EXACT"
                 ? "Runs in the background — finds reviews with repeated content or the same reviewer reused across more than one product, and deletes the duplicates immediately (keeping the earliest one)."
-                : "Uses your configured AI models to judge near-duplicate content (catches paraphrases exact matching misses) plus the same reviewer-reuse check. Flags likely duplicates for you to review — nothing is deleted until you confirm."}
+                : "Uses your configured AI models to judge near-duplicate content (catches paraphrases exact matching misses) plus the same reviewer-reuse check, and deletes the duplicates immediately (keeping the earliest one)."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

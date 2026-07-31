@@ -89,6 +89,9 @@ export async function runExactCheck(jobId: string, reviews: ReviewRow[]): Promis
   });
 
   for (let i = 0; i < toDelete.length; i += DELETE_CHUNK_SIZE) {
+    const current = await prisma.duplicateCheckJob.findUnique({ where: { id: jobId }, select: { status: true } });
+    if (current?.status !== "RUNNING") return;
+
     const chunk = toDelete.slice(i, i + DELETE_CHUNK_SIZE);
     await prisma.generatedReview.deleteMany({ where: { id: { in: chunk } } });
     await prisma.duplicateCheckJob.update({
@@ -100,9 +103,9 @@ export async function runExactCheck(jobId: string, reviews: ReviewRow[]): Promis
   await prisma.duplicateCheckJob.update({ where: { id: jobId }, data: { status: "COMPLETED" } });
 }
 
-/** AI-mode: flags likely duplicates (content via AI judgment, reviewer via exact match, same as
- * always) for review instead of auto-deleting — an LLM's judgment is less certain than exact
- * matching, so this waits for explicit confirmation via the confirm/dismiss routes. */
+/** AI-mode: detects likely duplicates (content via AI judgment, reviewer via exact match, same as
+ * always) and deletes them immediately, same as EXACT mode — the only difference from EXACT is
+ * which detection logic decides what counts as a duplicate. */
 export async function runAiCheck(jobId: string, storeId: string, reviews: ReviewRow[]): Promise<void> {
   const byProduct = groupByProduct(reviews);
   // Chronological within each product, oldest first, so "duplicateOfIndex" always points at the
@@ -126,11 +129,18 @@ export async function runAiCheck(jobId: string, storeId: string, reviews: Review
   let flaggedTotal = 0;
   let contentFlagged = 0;
   let reviewerFlagged = 0;
+  let deleted = 0;
 
   for (let i = 0; i < productEntries.length; i += AI_PRODUCT_CONCURRENCY) {
+    // Cooperative cancellation: the cancel endpoint can't force-remove a BullMQ job that's already
+    // active (locked by this worker), so it just flips the DB status instead — check for that
+    // between batches and bail out rather than clobbering it back to AWAITING_CONFIRMATION.
+    const current = await prisma.duplicateCheckJob.findUnique({ where: { id: jobId }, select: { status: true } });
+    if (current?.status !== "RUNNING") return;
+
     const batch = productEntries.slice(i, i + AI_PRODUCT_CONCURRENCY);
     await Promise.all(
-      batch.map(async ([productId, productReviews]) => {
+      batch.map(async ([, productReviews]) => {
         const reviewerDupeIds = findReviewerDupes(productReviews);
 
         let contentPairs: { reviewId: string; matchedReviewId: string }[] = [];
@@ -152,26 +162,18 @@ export async function runAiCheck(jobId: string, storeId: string, reviews: Review
           }
         }
 
-        const flags = [
-          ...contentPairs.map((p) => ({
-            reviewId: p.reviewId,
-            productId,
-            reason: "CONTENT" as const,
-            matchedReviewId: p.matchedReviewId,
-          })),
-          ...Array.from(reviewerDupeIds)
-            .filter((id) => !contentPairs.some((p) => p.reviewId === id))
-            .map((reviewId) => ({ reviewId, productId, reason: "REVIEWER" as const, matchedReviewId: null })),
-        ];
+        const contentDupeIds = new Set(contentPairs.map((p) => p.reviewId));
+        const toDelete = Array.from(new Set([...contentDupeIds, ...reviewerDupeIds]));
 
-        if (flags.length > 0) {
-          await prisma.duplicateCheckFlag.createMany({ data: flags.map((f) => ({ jobId, ...f })) });
+        if (toDelete.length > 0) {
+          await prisma.generatedReview.deleteMany({ where: { id: { in: toDelete } } });
         }
 
         scanned += productReviews.length;
-        flaggedTotal += flags.length;
-        contentFlagged += contentPairs.length;
-        reviewerFlagged += flags.length - contentPairs.length;
+        flaggedTotal += toDelete.length;
+        contentFlagged += contentDupeIds.size;
+        reviewerFlagged += toDelete.length - contentDupeIds.size;
+        deleted += toDelete.length;
       }),
     );
 
@@ -180,6 +182,7 @@ export async function runAiCheck(jobId: string, storeId: string, reviews: Review
       data: {
         scannedCount: scanned,
         totalToDelete: flaggedTotal,
+        deletedCount: deleted,
         contentDuplicatesRemoved: contentFlagged,
         reviewerDuplicatesRemoved: reviewerFlagged,
       },
@@ -188,12 +191,20 @@ export async function runAiCheck(jobId: string, storeId: string, reviews: Review
 
   await prisma.duplicateCheckJob.update({
     where: { id: jobId },
-    data: { status: "AWAITING_CONFIRMATION" },
+    data: { status: "COMPLETED" },
   });
 }
 
 export async function runDuplicateCheckJob(payload: DuplicateCheckJobPayload): Promise<void> {
   const { jobId, storeId, scope, limit, checkMode } = payload;
+
+  // Guards the same race the upload processor already guards against: if a worker redeploy stalls
+  // this job mid-run and BullMQ retries it later, don't resurrect it unless it's genuinely still
+  // fresh. Allowlisting PENDING (rather than denylisting terminal statuses) also blocks retrying
+  // into an already-RUNNING job (duplicate concurrent processing) or a legacy AWAITING_CONFIRMATION
+  // job (would silently auto-delete reviews a user might still be reviewing via the confirm UI).
+  const existing = await prisma.duplicateCheckJob.findUniqueOrThrow({ where: { id: jobId }, select: { status: true } });
+  if (existing.status !== "PENDING") return;
 
   await prisma.duplicateCheckJob.update({ where: { id: jobId }, data: { status: "RUNNING" } });
 

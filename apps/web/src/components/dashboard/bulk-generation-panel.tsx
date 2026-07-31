@@ -68,6 +68,12 @@ export function BulkGenerationPanel({
   const [target, setTarget] = useState<BulkGenerateTarget | null>(null);
   const [collectionId, setCollectionId] = useState(collections[0]?.value ?? "");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  // Wall-clock time of the last poll that actually returned data, and the reason the most recent
+  // one didn't. Without these a failing poll is indistinguishable from a job that isn't
+  // progressing. Stored pre-formatted because deriving an age during render reads the clock, which
+  // makes the render impure.
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
 
   // Keep local state in sync whenever the server re-renders this page (e.g. after an explicit
   // router.refresh() from a user action) without clobbering it in between. Adjusting state during
@@ -89,7 +95,18 @@ export function BulkGenerationPanel({
     let cancelled = false;
     const interval = setInterval(async () => {
       const result = await getJson<{ jobs: BulkJobRow[] }>("/api/bulk-generation");
-      if (!cancelled && result.success) setJobs(result.data.jobs);
+      if (cancelled) return;
+      // A failed poll used to be swallowed here, which is the worst possible outcome: the panel
+      // kept rendering whatever counts the server sent at page load, so an expired session or a
+      // 500 looked exactly like a job stuck on zero — while the worker was in fact processing
+      // normally the whole time. Surface it instead of freezing on stale numbers.
+      if (result.success) {
+        setJobs(result.data.jobs);
+        setLastSyncedAt(new Date().toLocaleTimeString());
+        setPollError(null);
+      } else {
+        setPollError(result.error.message);
+      }
     }, 2000);
     return () => {
       cancelled = true;
@@ -176,6 +193,18 @@ export function BulkGenerationPanel({
                 Refresh
               </Button>
             </div>
+
+            {pollError && hasActiveJob && (
+              <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-900 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-200">
+                <span className="font-medium">These counts are not updating.</span> The last refresh
+                failed ({pollError}).{" "}
+                {lastSyncedAt
+                  ? `Figures below were last updated at ${lastSyncedAt}.`
+                  : "The figures below are from when this page was loaded."}{" "}
+                The job itself is almost certainly still running — reload the page, and sign in
+                again if you have been logged out.
+              </div>
+            )}
             <div className="space-y-2">
               {jobs.map((job) => {
                 const processed = job.completedCount + job.failedCount;

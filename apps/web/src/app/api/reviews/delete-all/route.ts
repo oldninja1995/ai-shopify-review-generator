@@ -29,5 +29,18 @@ export async function POST(request: Request) {
     where: { product: { storeId: store.id }, ...resolveReviewStatusFilter(status) },
   });
 
+  // Feeds the dashboard's "Reviews cleared" stat — the deleted rows themselves are gone, so this is
+  // the only record that a deletion of this size happened at all.
+  if (result.count > 0) {
+    await prisma.systemLog.create({
+      data: {
+        level: "INFO",
+        userId: user.id,
+        message: `Deleted ${result.count} review${result.count === 1 ? "" : "s"}`,
+        metadata: { type: "reviews_deleted", count: result.count, status: status ?? null },
+      },
+    });
+  }
+
   return NextResponse.json(apiSuccess({ deletedCount: result.count }));
 }

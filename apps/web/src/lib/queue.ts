@@ -19,7 +19,9 @@ function requireEnv(name: "REDIS_URL"): string {
   return value;
 }
 
-const connection =
+// Exported because diagnostics reads worker-published keys and publishes control messages over the
+// same connection — Redis is the only channel between this app and the worker.
+export const connection =
   globalThis.__redisConnection ??
   new Redis(requireEnv("REDIS_URL"), { maxRetriesPerRequest: null });
 

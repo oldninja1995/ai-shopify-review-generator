@@ -6,10 +6,10 @@ import {
   Users,
   MessageSquareText,
   UploadCloud,
-  BarChart3,
   Palette,
   Plug,
   ScrollText,
+  Stethoscope,
   Settings,
 } from "lucide-react";
 
@@ -26,9 +26,9 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Reviewer Database", href: "/dashboard/reviewers", icon: Users },
   { label: "Generated Reviews", href: "/dashboard/reviews", icon: MessageSquareText },
   { label: "Upload Queue", href: "/dashboard/upload-queue", icon: UploadCloud },
-  { label: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { label: "Brand Settings", href: "/dashboard/brand-settings", icon: Palette },
   { label: "Review Provider", href: "/dashboard/review-provider", icon: Plug },
+  { label: "Diagnostics", href: "/dashboard/diagnostics", icon: Stethoscope },
   { label: "Logs", href: "/dashboard/logs", icon: ScrollText },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];

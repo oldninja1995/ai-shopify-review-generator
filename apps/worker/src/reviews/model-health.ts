@@ -11,6 +11,8 @@
  * The AiProviderStatus table remains the durable record. A worker restart re-probes everything,
  * which is the behaviour we want after a credit top-up or a plan change. */
 
+import type { CooldownEntry } from "@ai-shopify/shared";
+
 type Block = {
   /** Epoch ms after which this model may be tried again. */
   until: number;
@@ -69,6 +71,36 @@ export function isModelBlocked(provider: string, model: string): boolean {
 /** Used for logging — how much of the configured fleet is currently being skipped. */
 export function blockedCount(): number {
   return blocked.size;
+}
+
+/** The live block list, for the diagnostics snapshot. Expired entries are filtered rather than
+ * deleted: this is a read, and a read that mutates would make the same call return different
+ * counts depending on who ran it first. */
+export function cooldownEntries(): CooldownEntry[] {
+  const now = Date.now();
+  return [...blocked.entries()]
+    .filter(([, entry]) => entry.until > now)
+    .map(([key, entry]) => {
+      const idx = key.indexOf(":");
+      return {
+        provider: key.slice(0, idx),
+        model: key.slice(idx + 1),
+        until: entry.until,
+        status: entry.status,
+      };
+    });
+}
+
+/** Drops every cooldown so the next review re-probes the full fleet immediately.
+ *
+ * This exists because the cooldowns are the one piece of state a user cannot otherwise clear
+ * without restarting the worker: a 402 blocks a model for an hour (see cooldownFor), so topping up
+ * credits or fixing a key has no effect until that hour elapses. Returns how many were cleared so
+ * the dashboard can report what it actually did. */
+export function clearAllCooldowns(): number {
+  const cleared = blocked.size;
+  blocked.clear();
+  return cleared;
 }
 
 /** Rolling token spend per provider+model for this worker process.

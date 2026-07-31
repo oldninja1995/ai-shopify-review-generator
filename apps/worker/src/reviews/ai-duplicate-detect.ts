@@ -86,6 +86,9 @@ function parseDuplicatesResponse(raw: string, reviewCount: number): { index: num
 }
 
 async function callOpenRouter(apiKey: string, model: string, prompt: string): Promise<string | null> {
+  // Without a timeout, one hung request stalls the whole concurrent batch it's part of (and thus
+  // the entire job — see runAiCheck) since it's awaited via Promise.all. A generous 30s covers slow
+  // models without leaving the job frozen indefinitely on a dropped connection.
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -96,6 +99,7 @@ async function callOpenRouter(apiKey: string, model: string, prompt: string): Pr
       temperature: 0,
       response_format: { type: "json_object" },
     }),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) return null;
   const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
@@ -116,6 +120,12 @@ function shuffled<T>(items: T[]): T[] {
  * product count rather than review-pair count. Returns null (never throws) on total failure so
  * the caller can fall back to exact-hash matching for this product, per the app's existing
  * "never hard-fail on AI unavailability" pattern (see ai-generate.ts). */
+// Free-tier OpenRouter models are frequently rate-limited or unresponsive. With ~30 configured
+// models, trying them one at a time (each paying the full request timeout before falling through)
+// made a single product's check take minutes in the worst case. Racing a handful concurrently and
+// taking whichever answers first bounds per-product latency to ~one timeout instead of N of them.
+const MAX_MODEL_ATTEMPTS = 3;
+
 export async function detectAiDuplicates(
   apiKey: string,
   models: string[],
@@ -124,19 +134,23 @@ export async function detectAiDuplicates(
   if (reviews.length < 2) return [];
 
   const prompt = buildPrompt(reviews);
-  for (const model of shuffled(models)) {
-    try {
-      const raw = await callOpenRouter(apiKey, model, prompt);
-      if (!raw) continue;
-      const pairs = parseDuplicatesResponse(raw, reviews.length);
-      if (pairs === null) continue;
-      return pairs.map(({ index, duplicateOfIndex }) => ({
-        reviewId: reviews[index - 1]!.id,
-        matchedReviewId: reviews[duplicateOfIndex - 1]!.id,
-      }));
-    } catch {
-      // Try the next model.
-    }
-  }
-  return null;
+  const candidates = shuffled(models).slice(0, MAX_MODEL_ATTEMPTS);
+  const attempts = await Promise.all(
+    candidates.map(async (model) => {
+      try {
+        const raw = await callOpenRouter(apiKey, model, prompt);
+        if (!raw) return null;
+        return parseDuplicatesResponse(raw, reviews.length);
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const pairs = attempts.find((result) => result !== null) ?? null;
+  if (pairs === null) return null;
+  return pairs.map(({ index, duplicateOfIndex }) => ({
+    reviewId: reviews[index - 1]!.id,
+    matchedReviewId: reviews[duplicateOfIndex - 1]!.id,
+  }));
 }

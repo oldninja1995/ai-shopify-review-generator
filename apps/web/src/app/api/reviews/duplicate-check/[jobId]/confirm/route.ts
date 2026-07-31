@@ -45,5 +45,17 @@ export async function POST(_request: Request, { params }: { params: Promise<{ jo
 
   await prisma.duplicateCheckJob.update({ where: { id: jobId }, data: { status: "COMPLETED" } });
 
+  // Feeds the dashboard's "Reviews cleared" stat, same as every other deletion path.
+  if (reviewIds.length > 0) {
+    await prisma.systemLog.create({
+      data: {
+        level: "INFO",
+        userId: user.id,
+        message: `Confirmed and deleted ${reviewIds.length} flagged duplicate review${reviewIds.length === 1 ? "" : "s"}`,
+        metadata: { type: "reviews_deleted", count: reviewIds.length, status: "ALL" },
+      },
+    });
+  }
+
   return NextResponse.json(apiSuccess({ deletedCount: reviewIds.length }));
 }

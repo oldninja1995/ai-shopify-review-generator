@@ -63,20 +63,22 @@ export async function processUploadJob(uploadJobId: string, isFinalAttempt: bool
 
     await provider.uploadReview(credentials, payload);
 
-    await prisma.$transaction([
-      prisma.uploadJob.update({
-        where: { id: uploadJobId },
-        data: { status: "SUCCEEDED", uploadedAt: new Date(), lastError: null },
-      }),
-      prisma.generatedReview.update({
-        where: { id: uploadJob.reviewId },
-        data: { status: "UPLOADED" },
-      }),
-    ]);
+    // Once a review is confirmed live on the provider, this app has no further use for its own
+    // copy — delete it immediately rather than accumulating an ever-growing UPLOADED backlog that
+    // used to require a manual "delete all" sweep. Cascades onto this same uploadJob row too, so
+    // the system_log entry below is the only surviving record the upload happened.
+    // deleteMany (not delete) because the duplicate checker can delete this same review concurrently
+    // — the provider post already succeeded either way, so a 0-count result here just means we lost
+    // that race, not a failure worth surfacing. Either way the review WAS uploaded, so the log still
+    // counts it as 1 toward "reviews uploaded" regardless of who ended up removing the row.
+    const { count } = await prisma.generatedReview.deleteMany({ where: { id: uploadJob.reviewId } });
     await logSystemEvent(
       "INFO",
-      `Uploaded review for ${uploadJob.review.product.title} to ${uploadJob.providerConfig.provider}`,
-      { userId: uploadJob.review.product.store.userId, metadata: { uploadJobId } },
+      `Uploaded review for ${uploadJob.review.product.title} to ${uploadJob.providerConfig.provider}${count > 0 ? " and cleared it" : " (already cleared by a concurrent duplicate check)"}`,
+      {
+        userId: uploadJob.review.product.store.userId,
+        metadata: { uploadJobId, type: "reviews_deleted", count: 1, status: "UPLOADED" },
+      },
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -111,12 +113,16 @@ async function failUploadJob(
   userId: string,
   productTitle: string,
 ): Promise<void> {
+  // updateMany (not update) on both rows — the duplicate checker can delete the review concurrently
+  // while this upload attempt was in flight, and since UploadJob.review cascades on delete, that
+  // takes this uploadJob row down with it too. A plain `update` on either would throw P2025 here,
+  // failing the whole transaction and replacing the real upload error with a confusing one.
   await prisma.$transaction([
-    prisma.uploadJob.update({
+    prisma.uploadJob.updateMany({
       where: { id: uploadJobId },
       data: { status: "FAILED", lastError: message },
     }),
-    prisma.generatedReview.update({
+    prisma.generatedReview.updateMany({
       where: { id: reviewId },
       data: { status: "FAILED" },
     }),
