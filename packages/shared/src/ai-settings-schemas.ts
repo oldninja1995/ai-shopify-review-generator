@@ -4,6 +4,9 @@ export const aiSettingsSchema = z.object({
   apiKey: z.string().trim().min(1).optional(),
   models: z.array(z.string().trim().min(1)).min(1, "Select at least one model"),
   enabled: z.boolean(),
+  // Skips OpenRouter without clearing `models` — distinct from `enabled`, which turns off every
+  // provider including the stacked ones below.
+  openRouterEnabled: z.boolean().optional().default(true),
   visionAudienceEnabled: z.boolean().optional().default(false),
   // Skip a review instead of falling back to the phrase-bank generator once every configured AI
   // provider fails (e.g. daily capacity exhausted). Off by default.

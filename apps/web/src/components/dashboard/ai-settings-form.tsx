@@ -21,6 +21,7 @@ import { putJson } from "@/lib/api-client";
 
 export type AiSettingsInitialValues = {
   enabled: boolean;
+  openRouterEnabled: boolean;
   models: string[];
   hasApiKey: boolean;
   visionAudienceEnabled: boolean;
@@ -40,6 +41,7 @@ export function AiSettingsForm({
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initialValues.enabled);
+  const [openRouterEnabled, setOpenRouterEnabled] = useState(initialValues.openRouterEnabled);
   const [selected, setSelected] = useState<string[]>(initialValues.models);
   const [apiKey, setApiKey] = useState("");
   const [visionAudienceEnabled, setVisionAudienceEnabled] = useState(
@@ -91,6 +93,7 @@ export function AiSettingsForm({
       apiKey: apiKey.trim() ? apiKey.trim() : undefined,
       models: selected,
       enabled,
+      openRouterEnabled,
       visionAudienceEnabled,
       aiOnlyMode,
       groqApiKey: groqApiKey.trim() ? groqApiKey.trim() : undefined,
@@ -138,6 +141,33 @@ export function AiSettingsForm({
             >
               Disabled
             </Button>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>OpenRouter</Label>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={openRouterEnabled ? "default" : "outline"}
+                onClick={() => setOpenRouterEnabled(true)}
+              >
+                Enabled
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!openRouterEnabled ? "default" : "outline"}
+                onClick={() => setOpenRouterEnabled(false)}
+              >
+                Disabled
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Skips OpenRouter entirely while keeping the models below saved. Useful once other
+              providers are stacked — OpenRouter&apos;s free models share one account-wide daily
+              allowance, so trying it first after that allowance is spent just wastes attempts.
+            </p>
           </div>
 
           <div className="space-y-2">

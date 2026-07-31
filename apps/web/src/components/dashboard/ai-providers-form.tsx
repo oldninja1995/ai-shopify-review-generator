@@ -116,6 +116,21 @@ export function AiProvidersForm() {
     router.refresh();
   }
 
+  async function toggle(slug: string, label: string, next: boolean) {
+    const response = await fetch("/api/ai-providers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, enabled: next }),
+    });
+    if (!response.ok) {
+      toast.error(`Could not ${next ? "enable" : "disable"} ${label}`);
+      return;
+    }
+    setProviders((prev) => prev.map((p) => (p.slug === slug ? { ...p, enabled: next } : p)));
+    toast.success(`${label} ${next ? "enabled" : "disabled"}`);
+    router.refresh();
+  }
+
   async function remove(slug: string, label: string) {
     const response = await fetch(`/api/ai-providers?slug=${encodeURIComponent(slug)}`, { method: "DELETE" });
     if (!response.ok) {
@@ -145,15 +160,27 @@ export function AiProvidersForm() {
                 <div className="min-w-0">
                   <p className="font-medium">
                     {p.label} <span className="font-normal text-muted-foreground">({p.slug})</span>
+                    {!p.enabled && (
+                      <span className="ml-2 font-normal text-muted-foreground">— disabled</span>
+                    )}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">{p.baseUrl}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {p.models.length > 0 ? p.models.join(", ") : "No models — this provider is inert"}
                   </p>
                 </div>
-                <Button variant="ghost" size="xs" onClick={() => remove(p.slug, p.label)} aria-label="Remove">
-                  <X />
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant={p.enabled ? "outline" : "default"}
+                    size="xs"
+                    onClick={() => toggle(p.slug, p.label, !p.enabled)}
+                  >
+                    {p.enabled ? "Disable" : "Enable"}
+                  </Button>
+                  <Button variant="ghost" size="xs" onClick={() => remove(p.slug, p.label)} aria-label="Remove">
+                    <X />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>

@@ -140,7 +140,10 @@ export async function generateReviewsForProduct(payload: ReviewGenerationJobPayl
   // here would break all review generation, not just the Groq-specific fallback path.
   const aiSettings = await findAiSettingsSafe(product.storeId);
   const openRouterAi: AiProviderConfig | undefined =
-    aiSettings?.enabled && aiSettings.apiKeyEncrypted && aiSettings.models.length > 0
+    aiSettings?.enabled &&
+    aiSettings.openRouterEnabled &&
+    aiSettings.apiKeyEncrypted &&
+    aiSettings.models.length > 0
       ? {
           name: "openrouter",
           baseUrl: "https://openrouter.ai/api/v1",

@@ -26,6 +26,7 @@ export async function GET() {
     return NextResponse.json(
       apiSuccess({
         enabled: false,
+        openRouterEnabled: true,
         models: [],
         hasApiKey: false,
         visionAudienceEnabled: false,
@@ -40,6 +41,7 @@ export async function GET() {
   return NextResponse.json(
     apiSuccess({
       enabled: aiSettings?.enabled ?? false,
+      openRouterEnabled: aiSettings?.openRouterEnabled ?? true,
       models: aiSettings?.models ?? [],
       hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
       visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,
@@ -76,10 +78,13 @@ export async function PUT(request: Request) {
       { status: 400 },
     );
   }
-  const { apiKey, models, enabled, visionAudienceEnabled, aiOnlyMode, groqApiKey, groqModels } = parsed.data;
+  const { apiKey, models, enabled, openRouterEnabled, visionAudienceEnabled, aiOnlyMode, groqApiKey, groqModels } =
+    parsed.data;
 
   const existing = await findAiSettingsSafe(store.id);
-  if (enabled && !apiKey && !existing?.apiKeyEncrypted) {
+  // Only OpenRouter needs this key. A store running purely on Groq or its own stacked providers can
+  // switch OpenRouter off and enable AI generation without ever holding an OpenRouter account.
+  if (enabled && openRouterEnabled && !apiKey && !existing?.apiKeyEncrypted) {
     return NextResponse.json(
       apiFailure("Enter an API key before enabling AI generation", { code: "MISSING_API_KEY" }),
       { status: 400 },
@@ -99,20 +104,38 @@ export async function PUT(request: Request) {
     ? encryptSecret(groqApiKey, requireEncryptionKey())
     : existing?.groqApiKeyEncrypted;
 
-  const coreData = { storeId: store.id, apiKeyEncrypted, models, enabled, visionAudienceEnabled, aiOnlyMode };
+  const coreData = {
+    storeId: store.id,
+    apiKeyEncrypted,
+    models,
+    enabled,
+    openRouterEnabled,
+    visionAudienceEnabled,
+    aiOnlyMode,
+  };
   const groqData = { groqApiKeyEncrypted, groqModels };
   // Explicit `select` matters here, not just the create/update payload — Prisma returns every
   // scalar model field by default regardless of what was written, so without this the "core-only"
   // fallback would still try to read back the (possibly nonexistent) Groq columns and throw anyway.
   const coreSelect = {
     enabled: true,
+    openRouterEnabled: true,
     models: true,
     apiKeyEncrypted: true,
     visionAudienceEnabled: true,
     aiOnlyMode: true,
   } as const;
 
-  let result: { enabled: boolean; models: string[]; hasApiKey: boolean; visionAudienceEnabled: boolean; aiOnlyMode: boolean; groqModels: string[]; hasGroqApiKey: boolean };
+  let result: {
+    enabled: boolean;
+    openRouterEnabled: boolean;
+    models: string[];
+    hasApiKey: boolean;
+    visionAudienceEnabled: boolean;
+    aiOnlyMode: boolean;
+    groqModels: string[];
+    hasGroqApiKey: boolean;
+  };
   if (existing?.groqColumnsAvailable === false) {
     const aiSettings = await prisma.aiSettings.upsert({
       where: { storeId: store.id },

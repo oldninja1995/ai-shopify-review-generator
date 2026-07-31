@@ -239,7 +239,10 @@ export async function POST() {
   const encryptionKey = requireEncryptionKey();
   const targets: { provider: string; baseUrl: string; apiKey: string; model: string }[] = [];
 
-  if (aiSettings.apiKeyEncrypted && aiSettings.models.length > 0) {
+  // Skipped when OpenRouter is switched off, matching the `enabled: true` filter applied to the
+  // stacked providers below — a provider the worker will never call shouldn't be reported as
+  // Working on the status card.
+  if (aiSettings.openRouterEnabled && aiSettings.apiKeyEncrypted && aiSettings.models.length > 0) {
     const apiKey = decryptSecret(aiSettings.apiKeyEncrypted, encryptionKey);
     for (const model of aiSettings.models) {
       targets.push({ provider: "openrouter", baseUrl: "https://openrouter.ai/api/v1", apiKey, model });

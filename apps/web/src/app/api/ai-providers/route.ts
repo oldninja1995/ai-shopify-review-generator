@@ -99,6 +99,38 @@ export async function POST(request: Request) {
   return NextResponse.json(apiSuccess({ provider: toDto(saved) }));
 }
 
+/** Flips a single provider on or off without touching its key or model list.
+ *
+ * Separate from DELETE because switching a provider off is routine — a free tier runs out for the
+ * day, or a provider starts returning garbage — and re-adding a key afterwards is not. The worker
+ * already filters on `enabled` when it assembles the fallback chain, so a disabled provider costs
+ * no network calls at all. */
+export async function PATCH(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json(apiFailure("Not authenticated", { code: "NOT_AUTHENTICATED" }), { status: 401 });
+  }
+  const store = await currentStore(user.id);
+  if (!store) {
+    return NextResponse.json(apiFailure("No Shopify store connected", { code: "NOT_CONNECTED" }), { status: 400 });
+  }
+
+  const body = (await request.json().catch(() => null)) as { slug?: unknown; enabled?: unknown } | null;
+  if (typeof body?.slug !== "string" || typeof body.enabled !== "boolean") {
+    return NextResponse.json(apiFailure("Missing slug or enabled", { code: "VALIDATION_ERROR" }), { status: 400 });
+  }
+
+  const updated = await prisma.aiProviderCredential.updateMany({
+    where: { storeId: store.id, slug: body.slug },
+    data: { enabled: body.enabled },
+  });
+  if (updated.count === 0) {
+    return NextResponse.json(apiFailure("Provider not found", { code: "NOT_FOUND" }), { status: 404 });
+  }
+
+  return NextResponse.json(apiSuccess({ slug: body.slug, enabled: body.enabled }));
+}
+
 export async function DELETE(request: Request) {
   const user = await getCurrentUser();
   if (!user) {

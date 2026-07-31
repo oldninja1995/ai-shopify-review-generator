@@ -398,6 +398,11 @@ model AiSettings {
   apiKeyEncrypted String?      @db.Text
   models          String[]     @default([])
   enabled         Boolean      @default(false)
+  // Turns OpenRouter off on its own, without clearing the model list or disabling AI generation as
+  // a whole. Needed once a store stacks its own providers: OpenRouter's free models share one
+  // account-wide daily allowance, so a store leaning on Gemini/Cerebras/Mistral wants OpenRouter
+  // skipped rather than tried and failed first. Defaults on, so existing stores keep their behavior.
+  openRouterEnabled Boolean    @default(true)
   // Fallback provider tried after every configured OpenRouter model fails (e.g. OpenRouter's
   // shared free-tier daily cap is exhausted). Independent quota — a separate account/key, not
   // subject to OpenRouter's per-account rate limit.

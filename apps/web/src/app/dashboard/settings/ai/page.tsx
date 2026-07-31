@@ -46,6 +46,7 @@ export default async function AiSettingsPage() {
       <AiSettingsForm
         initialValues={{
           enabled: aiSettings?.enabled ?? false,
+          openRouterEnabled: aiSettings?.openRouterEnabled ?? true,
           models: aiSettings?.models ?? [],
           hasApiKey: Boolean(aiSettings?.apiKeyEncrypted),
           visionAudienceEnabled: aiSettings?.visionAudienceEnabled ?? false,

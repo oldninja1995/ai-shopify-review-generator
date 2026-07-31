@@ -15,6 +15,7 @@ export async function findAiSettingsSafe(storeId: string) {
       apiKeyEncrypted: true,
       models: true,
       enabled: true,
+      openRouterEnabled: true,
       visionAudienceEnabled: true,
       aiOnlyMode: true,
       createdAt: true,
