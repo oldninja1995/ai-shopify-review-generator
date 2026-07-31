@@ -28,8 +28,16 @@ import { logSystemEvent } from "../logging.js";
 
 const MAX_HASH_RETRIES = 2;
 /** Reviews requested per API call. Small enough that one malformed or truncated response costs
- * little, large enough that a 55-review product drops from 55 requests to ~5. */
-const BATCH_SIZE = 12;
+ * little, large enough that a 55-review product drops from 55 requests to ~2.
+ *
+ * Sized against requests, not tokens: the free tiers that carry bulk runs meter requests per day
+ * (Gemini gives 1,000/day on Flash-Lite) while their token allowances are nowhere near as tight, so
+ * every extra review folded into one call is close to free. At 25 a 50k-review day costs ~2,000
+ * requests instead of ~4,200, which is the difference between fitting inside the stacked free tiers
+ * and not. Going higher keeps helping on paper but stops helping in practice — models repeat
+ * themselves across a long roster, and screenBatchSimilarity then nulls the repeats, which sends
+ * those slots back through the per-review path and spends the requests the batch just saved. */
+const BATCH_SIZE = 25;
 const MAX_REVIEW_AGE_DAYS = 180;
 
 /** Picks a uniformly random instant within the lookback window, not just a random day — otherwise
